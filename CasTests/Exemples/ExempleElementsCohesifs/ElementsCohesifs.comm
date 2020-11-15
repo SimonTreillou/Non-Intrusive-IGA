@@ -1,0 +1,138 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import numpy as np
+from numpy import linalg
+
+DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
+
+### Lecture du maillage
+asMesh = LIRE_MAILLAGE(FORMAT = 'MED',
+		       UNITE = 20,						# Unité logique du fichier de maillage
+		       NOM_MED = 'cohesif',					# Nom du maillage au sein du fichier
+		       INFO = 1,
+		       )
+
+### Affectation des modèles
+mod = AFFE_MODELE(MAILLAGE = asMesh,
+		  AFFE = (
+			  _F(GROUP_MA = ('Fd','S'),				# Modèle de la structure
+			    PHENOMENE = 'MECANIQUE',
+			    MODELISATION = 'C_PLAN',
+			    ),
+			  _F(GROUP_MA = 'cohe',					# Modèle des éléments joints
+			     PHENOMENE = 'MECANIQUE',
+			     MODELISATION = 'PLAN_JOINT',
+			     ),
+			  )
+			  )
+
+### Définition des matériaux
+mat = DEFI_MATERIAU(ELAS= _F(E = 100000.,
+			      NU = 0.,
+			       ),
+		     RUPT_FRAG = _F(
+				    GC = 2.,					# Ténacité ou densité d'énergie de surface critique
+				    SIGM_C = 1.,				# Contrainte critique à la rupture
+				    PENA_ADHERENCE = 0.5,			# Pénalisation d'adhérence pour la régularisation de la densité d'énergie de surface
+				    PENA_CONTACT = 1.,				
+				)
+		     )
+
+### Affectation des matériaux
+Mat  = AFFE_MATERIAU(MAILLAGE = asMesh,
+		     AFFE = (_F(TOUT = 'OUI',
+			       MATER = mat,
+			       ),
+			     ),
+			     )
+
+### Affectation des conditions limites
+# Encastrement
+Fix = AFFE_CHAR_MECA(MODELE = mod,
+		     FACE_IMPO = (_F(GROUP_MA = 'Fix',
+				    DX = 0., DY = 0.
+				    ),
+				  )
+		     )
+# Pilotage en déplacement
+Wd = AFFE_CHAR_MECA(MODELE = mod,
+                    DDL_IMPO = _F(GROUP_MA='Fd',DX=0.5),
+                   )
+
+		    
+### Définition de liste d'instant pour le calcul non linéaire	
+listTemp = [0,1,2,3,4]	    
+listR = DEFI_LIST_REEL(VALE = listTemp)
+
+listInst = DEFI_LIST_INST(DEFI_LIST = _F(LIST_INST = listR))
+
+fonc = DEFI_FONCTION(NOM_PARA='INST',
+                     ABSCISSE = listTemp,
+                     ORDONNEE = listTemp,
+                     )
+			 
+### Calcul non linéaire pour le traitement des éléments cohésifs
+cal = STAT_NON_LINE(SOLVEUR=_F(METHODE='MUMPS'),					# Choix du solveur
+		    MODELE = mod,							# Modèle
+		    CHAM_MATER = Mat,							# Mmatériau
+		    EXCIT = (_F(CHARGE = Fix),						# Conditions limites
+			     _F(CHARGE = Wd,FONC_MULT=fonc),
+			     ),
+		    COMPORTEMENT = (
+				    _F(RELATION = 'CZM_LIN_REG',GROUP_MA = 'cohe'),	# Loi de comportement des éléments cohésifs
+				    _F(RELATION = 'ELAS' ,GROUP_MA = ('S')),		# Loi de comportement élastique
+				    ),
+		    INCREMENT = _F(LIST_INST = listInst,),				# Liste d'instant pour les incréments
+		    CONVERGENCE= _F(ITER_GLOB_MAXI = 200),				# Nombre maximal d'itération
+		    )
+		    
+
+
+### Calcul des réactions nodales
+cal = CALC_CHAMP(
+		 reuse = cal,							# Réutilisation du concept RESULTAT
+		 FORCE = 'REAC_NODA',						# Type de champ calculé
+		 GROUP_MA = ('S','cohe'),					# Choix des groupes sur lesquels calculer les champs
+		 RESULTAT = cal,						# Concept RESULTAT à utiliser
+		 )
+## Création d'un champ de réactions nodales sur toute la structure par extraction des réactions au sein de la structure RESULTAT
+F = CREA_CHAMP(OPERATION = 'EXTR',
+	       NOM_CHAM = 'REAC_NODA',
+	       TYPE_CHAM = 'NOEU_DEPL_R',
+	       NUME_ORDRE = 1,
+	       RESULTAT = cal,
+	       )
+## Extraction des réactions nodales à l'encastrement
+F_cohe = CREA_CHAMP(OPERATION = 'ASSE',
+		TYPE_CHAM = 'NOEU_DEPL_R',
+		MODELE = mod,
+		ASSE = _F(CHAM_GD = F, GROUP_MA = 'Fix'),
+		)
+## Extraction des composantes sous format array python
+f_cohe= F_cohe.EXTR_COMP().valeurs
+
+### Création d'un champ de déplacement sur toute la structure par extraction des déplacements au sein de la structure RESULTAT
+W = CREA_CHAMP(OPERATION = 'EXTR',
+	       NOM_CHAM = 'DEPL',
+	       TYPE_CHAM = 'NOEU_DEPL_R',
+	       NUME_ORDRE = 1,
+	       RESULTAT = cal,
+	       )
+
+## Extraction des déplacements à la jonction des éléments cohésifs et de la structure
+W_cohe = CREA_CHAMP(OPERATION = 'ASSE',
+		TYPE_CHAM = 'NOEU_DEPL_R',
+		MODELE = mod,
+		ASSE = _F(CHAM_GD = W, GROUP_NO = 'bordCohe'),
+		)
+
+w_cohe = W_cohe.EXTR_COMP().valeurs
+
+### Impression du résultat au format MED
+IMPR_RESU(FORMAT='MED',
+	  UNITE=81,
+	  RESU=_F(MAILLAGE=asMesh,RESULTAT = cal),
+	  )
+
+FIN;

@@ -1,0 +1,33 @@
+P actions make_etude
+P aster_root /home/larousse/dir-code-aster/aster-14.4.0
+P consbtc oui
+P corefilesize unlimited
+P cpresok RESNOOK
+P debug nodebug
+P facmtps 1
+P lang fr
+P mem_aster 100.0
+P memjob 4194304
+P memory_limit 4096.0
+P mode interactif
+P mpi_nbcpu 1
+P mpi_nbnoeud 1
+P nbmaxnook 5
+P ncpus 1
+P nomjob test
+P origine ASTK 1.13.1
+P platform LINUX64
+P protocol_copyfrom asrun.plugins.server.SCPServer
+P protocol_copyto asrun.plugins.server.SCPServer
+P protocol_exec asrun.plugins.server.SSHServer
+P rep_trav /tmp/poumaziz-localhost-interactif_12832
+P soumbtc oui
+P time_limit 72000.0
+P tpsjob 1201
+P version 14.4
+A args -interact
+A memjeveux 512.0
+A tpmax 72000.0
+F comm /home/larousse/Bureau/INSA/5A/Projet/ProjetRecherche5GMM/CasTests/Exemples/ExempleElementsCohesifs/ElementsCohesifs.comm D  1
+F mmed /home/larousse/Bureau/INSA/5A/Projet/ProjetRecherche5GMM/CasTests/Exemples/ExempleElementsCohesifs/cohesif.med D  20
+F mmed /home/larousse/Bureau/INSA/5A/Projet/ProjetRecherche5GMM/CasTests/Exemples/ExempleElementsCohesifs/resu.med R  81
