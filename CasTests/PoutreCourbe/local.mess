@@ -1,0 +1,606 @@
+# ------------------------------------------------------------------------------------------
+# Impression du contenu du fichier de commandes à exécuter :
+# ------------------------------------------------------------------------------------------
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+
+### ----------------------
+### ATTENTION
+### Dans aster les noms de variable doivent avoir moins de 8 caractères
+### ----------------------
+
+
+import numpy as np
+from numpy import linalg
+import scipy.sparse as sp
+
+DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
+
+### Lecture du maillage
+asMesh = LIRE_MAILLAGE(FORMAT = 'MED',
+		       UNITE = 20,						# Unité logique du fichier de maillage
+		       NOM_MED = 'fish',					# Nom du maillage au sein du fichier
+		       INFO = 1,
+		       )
+
+# Nombre de noeuds physiques du maillage
+nbNoeud = asMesh.sdj.DIME.get()[0]
+dim = 2 # Dimension du problème
+
+### Affectation des modèles
+mod = AFFE_MODELE(MAILLAGE = asMesh,
+		  AFFE = (
+			  _F(TOUT = 'OUI',				# Modèle de la structure
+			    PHENOMENE = 'MECANIQUE',
+			    MODELISATION = 'C_PLAN',
+			    ),
+			  )
+			  )
+
+### Définition des matériaux
+mat = DEFI_MATERIAU(ELAS= _F(E = 100000.,
+			        NU = 0.3,
+			       ),			
+				)
+
+### Affectation des matériaux
+Mat  = AFFE_MATERIAU(MAILLAGE = asMesh,
+		     AFFE = (_F(TOUT = 'OUI',
+			       MATER = mat,
+			       ),
+			     ),
+			     )
+
+### Affectation des conditions limites
+# Encastrement
+#Fix = AFFE_CHAR_CINE(MODELE = mod,
+#		     MECA_IMPO = (_F(GROUP_MA = 'Wd',
+#				    DX = 0., DY = 0.
+#				    ),
+#				  )
+#		     )
+# Effort imposé
+Fd = AFFE_CHAR_MECA(MODELE = mod,
+		    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
+                    FORCE_CONTOUR = _F(GROUP_MA='Wd',FX=0,FY=10),
+                   )
+
+
+# Calcul des matrices de rigidité élémentaires
+matElem = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=mod, CHAM_MATER=Mat)
+
+# Calcul de la numérotation
+numDDL = NUME_DDL(MATR_RIGI=matElem, );
+
+# Assemblage de la matrice de rigidité
+matAss = ASSE_MATRICE(MATR_ELEM=matElem, NUME_DDL=numDDL)
+
+# Calcul du second membre lié aux CL de Dirichlet
+vcine = CALC_CHAR_CINE(NUME_DDL=numDDL,);
+
+# Calcul du second membre lié aux CL de Neumann
+vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
+vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
+
+# Factorisation de la matrice de rigidité et prise en compte des CL de 
+# Dirichlet éliminées
+matAss = FACTORISER(reuse=matAss,MATR_ASSE=matAss, METHODE='MUMPS',);
+
+# Résolution du problèm Ku=F
+sol = RESOUDRE(MATR=matAss, CHAM_NO=vneum,) #CHAM_CINE=vcine,)
+
+# Création du concept de résultat
+Res = CREA_RESU(OPERATION = 'AFFE',
+                TYPE_RESU = 'EVOL_ELAS',
+                NOM_CHAM = 'DEPL',
+                AFFE = _F(CHAM_GD = sol,
+                        MODELE = mod,
+                        CHAM_MATER = Mat,
+                        INST = 1.
+                        )
+                )
+
+# Calcul des champs de réactions nodales
+Res = CALC_CHAMP(reuse = Res,
+                 RESULTAT = Res,
+                 FORCE = 'REAC_NODA',
+                 TOUT = 'OUI')
+
+# Sauvegarde au format med
+IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=Res))
+
+
+### Exemple de passage aster->numpy et numpy->aster
+
+# Conversion de la matrice de rigidité au format sparse
+matAssPython = matAss.EXTR_MATR(sparse='True')
+matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeud,2*nbNoeud)).tocsc()
+
+# Conversion du champ de déplacement en python (ça s'est facile)
+topo = sol.EXTR_COMP(topo=1).noeud # Numéro des noeux associés aux degrés de liberté
+NO = ['N{}'.format(ii) for ii in sorted(list(set(list(topo))))] # Liste de noeuds
+deplPython = sol.EXTR_COMP().valeurs # Valeur du champ au format numpy
+
+# ------------------------------------------------------------------------------------------
+
+  Ouverture en écriture du fichier ./vola.1
+
+ <INFO> Démarrage de l'exécution.
+                                                                                
+                                                                                
+        -- CODE_ASTER -- VERSION : DÉVELOPPEMENT STABILISÉE (testing) --        
+                                                                                
+                     Version 14.4.0 modifiée le 28/06/2019                      
+                   révision 9aa55c3f2e9e - branche 'default'                    
+                         Copyright EDF R&D 1991 - 2020                          
+                                                                                
+                    Exécution du : Mon Nov 30 22:15:14 2020                     
+                      Nom de la machine : treillou-X455LJ                       
+                              Architecture : 64bit                              
+                          Type de processeur : x86_64                           
+Système d'exploitation : Linux-5.4.0-54-generic-x86_64-with-debian-bullseye-sid 
+                        Langue des messages : fr (UTF-8)                        
+                                                                                
+                           Version de Python : 3.6.12                           
+                           Version de NumPy : 1.19.4                            
+                           Parallélisme MPI : inactif                           
+                          Parallélisme OpenMP : actif                           
+                        Nombre de processus utilisés : 2                        
+                     Version de la librairie HDF5 : 1.10.3                      
+                      Version de la librairie MED : 4.0.0                       
+                       Librairie MFront : non disponible                        
+                     Version de la librairie MUMPS : 5.1.2                      
+                        Librairie PETSc : non disponible                        
+                     Version de la librairie SCOTCH : 6.0.4                     
+
+                  Mémoire limite pour l'exécution : 1024.00 Mo                  
+                   consommée par l'initialisation : 232.42 Mo                   
+                  par les objets du jeu de commandes : 0.00 Mo                  
+                 reste pour l'allocation dynamique : 757.37 Mo                  
+                Taille limite des fichiers d'échange : 48.00 Go                 
+                                                                                
+
+.. __stg1_txt15
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0001            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DEBUT(PAR_LOT='NON',
+        IMPR_MACRO='NON',
+        DEBUG=_F(JXVERI='NON',
+                 SDVERI='NON',
+                 JEVEUX='NON',
+                 HIST_ETAPE='NON',),
+        MESURE_TEMPS=_F(NIVE_DETAIL=1,
+                        MOYENNE='NON',),
+        MEMOIRE=_F(TAILLE_BLOC=800.0,
+                   TAILLE_GROUP_ELEM=1000,),
+        RESERVE_CPU=_F(BORNE=900,),
+        INFO=1,)
+
+   
+   !------------------------------------------------------------------------------------!
+   ! <A> <SUPERVIS_1>                                                                   !
+   !                                                                                    !
+   !  L'utilisation du mot-clé PAR_LOT='NON' permet d'accéder en lecture et en écriture !
+   !  au contenu des concepts Aster. De ce fait, votre étude est exclue du périmètre    !
+   !  qualifié de Code_Aster puisque toutes ses étapes ne peuvent être certifiées.      !
+   !                                                                                    !
+   !  Conseils :                                                                        !
+   !    - Il n'y a pas particulièrement de risque de résultat faux... sauf si votre     !
+   !      programmation l'introduit.                                                    !
+   !    - Distinguez le calcul lui-même (qui doit sans doute passer en PAR_LOT='OUI')   !
+   !      des post-traitements (qui nécessiteraient le mode PAR_LOT='NON') qui peuvent  !
+   !      être réalisés en POURSUITE.                                                   !
+   !                                                                                    !
+   !                                                                                    !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                     !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                             !
+   !------------------------------------------------------------------------------------!
+   
+
+  Valeur initiale du temps CPU maximum =   900 secondes
+  Valeur du temps CPU maximum passé aux commandes =   810 secondes
+  Réserve CPU prévue = 90 secondes
+
+  Ouverture en écriture du fichier ./glob.1
+
+  Ouverture en écriture du fichier ./vola.1
+
+  Ouverture en lecture du fichier /home/treillou/dir-code-aster/aster-14.4.0/14.4/lib/aster/elem.1
+
+     Nom de la base                          :  ELEMBASE
+     Créée avec la version                   :  14.04.00
+     Nombre d'enregistrements utilisés       :  43
+     Nombre d'enregistrements maximum        :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+
+  Ouverture en lecture du fichier /home/treillou/dir-code-aster/aster-14.4.0/14.4/lib/aster/elem.1
+
+
+     Nom de la base                          :  ELEMBASE
+     Nombre d'enregistrements utilisés       :  43
+     Nombre d'enregistrements maximum        :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre total d'accès en lecture         :  60
+     Volume des accès en lecture             :         46.88 Mo.
+     Nombre total d'accès en écriture        :  0
+     Volume des accès en écriture            :          0.00 Mo.
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+
+  Relecture des catalogues des éléments faite.
+
+  Fin de lecture (durée  0.047036  s.) 
+  # Mémoire (Mo) :   311.30 /   303.58 /    44.30 /    22.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0001   user+syst:        0.08s (syst:        0.05s, elaps:        0.06s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt21
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0002            Concept de type : maillage_sdaster
+  # ------------------------------------------------------------------------------------------
+  asMesh = LIRE_MAILLAGE(FORMAT='MED',
+                         INFO=1,
+                         UNITE=20,
+                         NOM_MED='fish',
+                         INFO_MED=1,
+                         VERI_MAIL=_F(VERIF='OUI',
+                                      APLAT=1.E-3,),
+                         )
+
+Vérification du maillage.
+   
+   !----------------------------------------------------------------!
+   ! <A> <MODELISA8_14>                                             !
+   !                                                                !
+   ! La maille POI1 M1 est incluse dans une autre.                  !
+   !                                                                !
+   !                                                                !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette !
+   ! alarme, vous pouvez obtenir des résultats inattendus !         !
+   !----------------------------------------------------------------!
+   
+   
+   !----------------------------------------------------------------!
+   ! <A> <MODELISA8_14>                                             !
+   !                                                                !
+   ! La maille POI1 M2 est incluse dans une autre.                  !
+   !                                                                !
+   !                                                                !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette !
+   ! alarme, vous pouvez obtenir des résultats inattendus !         !
+   !----------------------------------------------------------------!
+   
+   
+   !----------------------------------------------------------------!
+   ! <A> <MODELISA8_14>                                             !
+   !                                                                !
+   ! La maille POI1 M3 est incluse dans une autre.                  !
+   !                                                                !
+   !                                                                !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette !
+   ! alarme, vous pouvez obtenir des résultats inattendus !         !
+   !----------------------------------------------------------------!
+   
+   
+   !----------------------------------------------------------------!
+   ! <A> <MODELISA8_14>                                             !
+   !                                                                !
+   ! La maille POI1 M4 est incluse dans une autre.                  !
+   !                                                                !
+   !                                                                !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette !
+   ! alarme, vous pouvez obtenir des résultats inattendus !         !
+   !----------------------------------------------------------------!
+   
+   
+   !----------------------------------------------------------------!
+   ! <A> <MODELISA8_14>                                             !
+   !                                                                !
+   ! La maille POI1 M5 est incluse dans une autre.                  !
+   !                                                                !
+   !                                                                !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette !
+   ! alarme, vous pouvez obtenir des résultats inattendus !         !
+   !----------------------------------------------------------------!
+   
+   
+   !--------------------------------------------------------------------------------!
+   ! <A> <CATAMESS_41>                                                              !
+   !                                                                                !
+   ! Le message d'alarme 'MODELISA8_14' a été émis 5 fois, il ne sera plus affiché. !
+   !                                                                                !
+   !                                                                                !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                 !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                         !
+   !--------------------------------------------------------------------------------!
+   
+
+------------ MAILLAGE asMesh   - IMPRESSIONS NIVEAU  1 ------------
+
+LU-30-NOVE-2020 22:15:14                                                        
+
+NOMBRE DE NOEUDS                        4580
+
+NOMBRE DE MAILLES                       2463
+                              POI1                   60
+                              SEG3                  244
+                              TRIA6                2159
+
+NOMBRE DE GROUPES DE MAILLES               1
+                              Wd                                  26
+
+--------------------------------------------------------------------------------
+
+  # Mémoire (Mo) :   311.30 /   305.44 /    44.30 /    22.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0002   user+syst:        0.04s (syst:        0.01s, elaps:        0.03s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt33
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0004            Concept de type : modele_sdaster
+  # ------------------------------------------------------------------------------------------
+  mod = AFFE_MODELE(MAILLAGE=asMesh,
+                    AFFE=_F(TOUT='OUI',
+                            PHENOMENE='MECANIQUE',
+                            MODELISATION=('C_PLAN', ),),
+                    INFO=1,
+                    DISTRIBUTION=_F(PARTITIONNEUR='METIS',
+                                    METHODE='SOUS_DOMAINE',),
+                    VERI_JACOBIEN='OUI',)
+
+
+Sur les 2463 mailles du maillage asMesh, on a demandé l'affectation de 2463, on a pu en affecter 2403
+   
+   !-------------------------------------------------------------------------------------!
+   ! <A> <MODELE1_63>                                                                    !
+   !                                                                                     !
+   !   -> La maille M105 porte un élément fini de bord, mais elle ne borde               !
+   !      aucun élément ayant une "rigidité".                                            !
+   !                                                                                     !
+   !   -> Risque & Conseil :                                                             !
+   !      Cela peut entraîner des problèmes de "pivot nul" lors de la résolution.        !
+   !      Si la résolution des systèmes linéaires ne pose pas de problèmes, vous         !
+   !      pouvez ignorer ce message.                                                     !
+   !      Sinon, vérifier la définition du modèle (AFFE_MODELE) en évitant l'utilisation !
+   !      de l'opérande TOUT='OUI'.                                                      !
+   !                                                                                     !
+   !                                                                                     !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                      !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                              !
+   !-------------------------------------------------------------------------------------!
+   
+   
+   !-------------------------------------------------------------------------------------!
+   ! <A> <MODELE1_63>                                                                    !
+   !                                                                                     !
+   !   -> La maille M106 porte un élément fini de bord, mais elle ne borde               !
+   !      aucun élément ayant une "rigidité".                                            !
+   !                                                                                     !
+   !   -> Risque & Conseil :                                                             !
+   !      Cela peut entraîner des problèmes de "pivot nul" lors de la résolution.        !
+   !      Si la résolution des systèmes linéaires ne pose pas de problèmes, vous         !
+   !      pouvez ignorer ce message.                                                     !
+   !      Sinon, vérifier la définition du modèle (AFFE_MODELE) en évitant l'utilisation !
+   !      de l'opérande TOUT='OUI'.                                                      !
+   !                                                                                     !
+   !                                                                                     !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                      !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                              !
+   !-------------------------------------------------------------------------------------!
+   
+   
+   !-------------------------------------------------------------------------------------!
+   ! <A> <MODELE1_63>                                                                    !
+   !                                                                                     !
+   !   -> La maille M107 porte un élément fini de bord, mais elle ne borde               !
+   !      aucun élément ayant une "rigidité".                                            !
+   !                                                                                     !
+   !   -> Risque & Conseil :                                                             !
+   !      Cela peut entraîner des problèmes de "pivot nul" lors de la résolution.        !
+   !      Si la résolution des systèmes linéaires ne pose pas de problèmes, vous         !
+   !      pouvez ignorer ce message.                                                     !
+   !      Sinon, vérifier la définition du modèle (AFFE_MODELE) en évitant l'utilisation !
+   !      de l'opérande TOUT='OUI'.                                                      !
+   !                                                                                     !
+   !                                                                                     !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                      !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                              !
+   !-------------------------------------------------------------------------------------!
+   
+   
+   !-------------------------------------------------------------------------------------!
+   ! <A> <MODELE1_63>                                                                    !
+   !                                                                                     !
+   !   -> La maille M108 porte un élément fini de bord, mais elle ne borde               !
+   !      aucun élément ayant une "rigidité".                                            !
+   !                                                                                     !
+   !   -> Risque & Conseil :                                                             !
+   !      Cela peut entraîner des problèmes de "pivot nul" lors de la résolution.        !
+   !      Si la résolution des systèmes linéaires ne pose pas de problèmes, vous         !
+   !      pouvez ignorer ce message.                                                     !
+   !      Sinon, vérifier la définition du modèle (AFFE_MODELE) en évitant l'utilisation !
+   !      de l'opérande TOUT='OUI'.                                                      !
+   !                                                                                     !
+   !                                                                                     !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                      !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                              !
+   !-------------------------------------------------------------------------------------!
+   
+   
+   !-------------------------------------------------------------------------------------!
+   ! <A> <MODELE1_63>                                                                    !
+   !                                                                                     !
+   !   -> La maille M109 porte un élément fini de bord, mais elle ne borde               !
+   !      aucun élément ayant une "rigidité".                                            !
+   !                                                                                     !
+   !   -> Risque & Conseil :                                                             !
+   !      Cela peut entraîner des problèmes de "pivot nul" lors de la résolution.        !
+   !      Si la résolution des systèmes linéaires ne pose pas de problèmes, vous         !
+   !      pouvez ignorer ce message.                                                     !
+   !      Sinon, vérifier la définition du modèle (AFFE_MODELE) en évitant l'utilisation !
+   !      de l'opérande TOUT='OUI'.                                                      !
+   !                                                                                     !
+   !                                                                                     !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                      !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                              !
+   !-------------------------------------------------------------------------------------!
+   
+   
+   !------------------------------------------------------------------------------!
+   ! <A> <CATAMESS_41>                                                            !
+   !                                                                              !
+   ! Le message d'alarme 'MODELE1_63' a été émis 5 fois, il ne sera plus affiché. !
+   !                                                                              !
+   !                                                                              !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette               !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                       !
+   !------------------------------------------------------------------------------!
+   
+ Modélisation     Type maille  Élément fini     Nombre
+ C_PLAN           TRIA6        MECPTR6          2159
+                  SEG3         MEPLSE3          244
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   339.27 /   339.14 /    44.30 /    34.44 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0004   user+syst:        0.03s (syst:        0.01s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt40
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0005            Concept de type : mater_sdaster
+  # ------------------------------------------------------------------------------------------
+  mat = DEFI_MATERIAU(ELAS=_F(E=1.E5,
+                              NU=0.3,
+                              COEF_AMOR=1.0,),
+                      INFO=1,)
+
+Propriétés définies dans le matériau: ELAS.
+  # Mémoire (Mo) :   339.29 /   339.29 /    44.30 /    34.44 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0005   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt47
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0006            Concept de type : cham_mater
+  # ------------------------------------------------------------------------------------------
+  Mat = AFFE_MATERIAU(MAILLAGE=asMesh,
+                      AFFE=_F(TOUT='OUI',
+                              MATER=(mat, ),),
+                      INFO=1,)
+
+  # Mémoire (Mo) :   339.29 /   339.29 /    44.30 /    34.44 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0006   user+syst:        0.02s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt63
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0007            Concept de type : char_meca
+  # ------------------------------------------------------------------------------------------
+  Fd = AFFE_CHAR_MECA(MODELE=mod,
+                      FORCE_CONTOUR=_F(GROUP_MA=('Wd', ),
+                                       FX=0,
+                                       FY=10,),
+                      VERI_NORM='OUI',
+                      DOUBLE_LAGRANGE='OUI',
+                      INFO=1,)
+
+  # Mémoire (Mo) :   339.52 /   339.29 /    44.30 /    34.44 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0007   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt68
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0008            Concept de type : matr_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  matElem = CALC_MATR_ELEM(OPTION='RIGI_MECA',
+                           MODELE=mod,
+                           CHAM_MATER=Mat,
+                           MODE_FOURIER=0,
+                           CALC_ELEM_MODELE='OUI',
+                           INST=0.0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.06      0.02      0.02
+  # Mémoire (Mo) :   341.01 /   340.58 /    44.30 /    34.98 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0008   user+syst:        0.06s (syst:        0.02s, elaps:        0.03s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt71
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0009            Concept de type : nume_ddl_sdaster
+  # ------------------------------------------------------------------------------------------
+  numDDL = NUME_DDL(MATR_RIGI=(matElem, ),)
+
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.04      0.01      0.02
+  # Mémoire (Mo) :   343.78 /   341.52 /    44.30 /    34.98 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0009   user+syst:        0.04s (syst:        0.01s, elaps:        0.03s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt74
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0010            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAss = ASSE_MATRICE(MATR_ELEM=matElem,
+                        NUME_DDL=numDDL,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE M        :  0.1000D-01 0.1000D-01 0.7909D-02
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.02      0.01      0.01
+  # Mémoire (Mo) :   345.70 /   345.70 /    44.30 /    34.98 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0010   user+syst:        0.02s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+
+  <I> Informations sur les temps d'exécution
+      Temps cpu user total                    0.78 s
+      Temps cpu systeme total                 0.16 s
+      Temps elapsed total                     0.83 s
+      Temps restant                         809.17 s
+
+
+  La signature de la base sauvegardée est (à l'adresse 0) :
+    f6eedcdca56b202ad1defd27a9034955161523ec
+
+ ********************************************************************************
+ * COMMAND                  :       USER :     SYSTEM :   USER+SYS :    ELAPSED *
+ ********************************************************************************
+ * init (jdc)               :       0.78 :       0.17 :       0.95 :       0.84 *
+ *  . compile               :       0.00 :       0.00 :       0.00 :       0.00 *
+ *  . exec_compile          :       0.39 :       0.15 :       0.54 :       0.43 *
+ * DEBUT                    :       0.03 :       0.05 :       0.08 :       0.06 *
+ * LIRE_MAILLAGE            :       0.03 :       0.01 :       0.04 :       0.03 *
+ * AFFE_MODELE              :       0.02 :       0.01 :       0.03 :       0.02 *
+ * DEFI_MATERIAU            :       0.00 :       0.00 :       0.00 :       0.00 *
+ * AFFE_MATERIAU            :       0.01 :       0.01 :       0.02 :       0.01 *
+ * AFFE_CHAR_MECA           :       0.01 :       0.00 :       0.01 :       0.01 *
+ * CALC_MATR_ELEM           :       0.04 :       0.02 :       0.06 :       0.03 *
+ * NUME_DDL                 :       0.03 :       0.01 :       0.04 :       0.03 *
+ * ASSE_MATRICE             :       0.01 :       0.01 :       0.02 :       0.01 *
+ *  . part Superviseur      :       0.64 :       0.10 :       0.74 :       0.71 *
+ *  . part Fortran          :       0.14 :       0.07 :       0.21 :       0.13 *
+ ********************************************************************************
+ * TOTAL_JOB                :       0.78 :       0.16 :       0.94 :       0.83 *
+ ********************************************************************************
+
+ERREUR A L'INTERPRETATION DANS ACCAS - INTERRUPTION
+>> JDC.py : DEBUT RAPPORT
+CR phase d'initialisation
+   Etape : CALC_CHAR_CINE    ligne : 77    fichier : 'fort.1'
+      Mot-clé simple : CHAR_CINE
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         ! Mot-clé : CHAR_CINE obligatoire non valorisé !
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+         ! None n'est pas une valeur autorisée !
+         !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+      Fin Mot-clé simple : CHAR_CINE
+   Fin Etape : CALC_CHAR_CINE
+fin CR phase d'initialisation
+
+>> JDC.py : FIN RAPPORT
+EXECUTION_CODE_ASTER_EXIT_428015=1
+
+ <I>_EXIT_CODE = 1
