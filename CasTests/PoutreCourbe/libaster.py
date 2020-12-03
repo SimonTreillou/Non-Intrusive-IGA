@@ -23,10 +23,29 @@ from code_aster.Cata.Commands import FACTORISER
 from code_aster.Cata.Commands import RESOUDRE
 from code_aster.Cata.Commands import CALC_CHAMP
 from code_aster.Cata.Commands import IMPR_RESU
+from code_aster.Cata.Commands import DETRUIRE
+import reac_noda as rn
 
 
-def Rigidite_Glob():
-	DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
+class Modele:
+	def __init__(self,E=100000.,Nu=0.3,meshName='global',fx=0.,fy=10.):
+		self.E = E
+		self.Nu = Nu
+		self.meshName = meshName
+		self.fx = fx
+		self.fy = fy
+		
+	def Rigidite(self):
+		if self.meshName =='global':
+			return Rigidite_Glob(self.E,self.Nu)
+		else:
+			return Rigidite_Loc(self.E,self.Nu)
+
+
+
+
+
+def Rigidite_Glob(E=100000.,Nu=0.3,fx=0.,fy=10.):
 
 	### Lecture du maillage
 	asMesh = LIRE_MAILLAGE(FORMAT = 'MED',
@@ -50,8 +69,8 @@ def Rigidite_Glob():
 				  )
 
 	### Définition des matériaux
-	mat = DEFI_MATERIAU(ELAS= _F(E = 100000.,
-					NU = 0.3,
+	mat = DEFI_MATERIAU(ELAS= _F(E = E,
+					NU = Nu,
 				       ),			
 					)
 
@@ -74,7 +93,7 @@ def Rigidite_Glob():
 			     )
 	# Effort imposé
 	Fd = AFFE_CHAR_MECA(MODELE = mod,
-			    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=0,FY=10),
+			    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=fx,FY=fy),
 			    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
 		           #PRES_REP = _F(GROUP_MA='Fd',PRES=10),
 		           )
@@ -120,7 +139,6 @@ def Rigidite_Glob():
 		         TOUT = 'OUI',
 		         )
 		         
-
 	# Sauvegarde au format med
 	IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=Res))
 
@@ -135,16 +153,34 @@ def Rigidite_Glob():
 	topo = sol.EXTR_COMP(topo=1).noeud # Numéro des noeux associés aux degrés de liberté
 	NO = ['N{}'.format(ii) for ii in sorted(list(set(list(topo))))] # Liste de noeuds
 	deplPython = sol.EXTR_COMP().valeurs # Valeur du champ au format numpy
-	return matAssPython, deplPython
+	
+	#### DETRUIRE CONCEPTS
+	#resuu = rn.create_resu(sol,mod,Mat)
+	champp = rn.compute_nodal_reaction_from_field_on_group(sol,mod,Mat,'Fd')
+	DETRUIRE(CONCEPT=_F(NOM=asMesh))
+	DETRUIRE(CONCEPT=_F(NOM=mod))
+	DETRUIRE(CONCEPT=_F(NOM=Mat))
+	DETRUIRE(CONCEPT=_F(NOM=mat))
+	DETRUIRE(CONCEPT=_F(NOM=Fix))
+	DETRUIRE(CONCEPT=_F(NOM=Fd))
+	DETRUIRE(CONCEPT=_F(NOM=matElem))
+	DETRUIRE(CONCEPT=_F(NOM=matAss))
+	DETRUIRE(CONCEPT=_F(NOM=numDDL))
+	DETRUIRE(CONCEPT=_F(NOM=vneum))
+	DETRUIRE(CONCEPT=_F(NOM=vcine))
+	DETRUIRE(CONCEPT=_F(NOM=vecElem))
+	DETRUIRE(CONCEPT=_F(NOM=sol))
+	DETRUIRE(CONCEPT=_F(NOM=Res))
+	return matAssPython, deplPython, nbNoeud
 	
 	
-def Rigidite_Loc():
-	DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
+def Rigidite_Loc(E,Nu):
+	#DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
 
 	### Lecture du maillage
 	asMesh = LIRE_MAILLAGE(FORMAT = 'MED',
-			       UNITE = 20,						# Unité logique du fichier de maillage
-			       NOM_MED = 'local',					# Nom du maillage au sein du fichier
+			       UNITE = 21,						# Unité logique du fichier de maillage
+			       NOM_MED = 'fish',					# Nom du maillage au sein du fichier
 			       INFO = 1,
 			       )
 
@@ -163,8 +199,8 @@ def Rigidite_Loc():
 				  )
 
 	### Définition des matériaux
-	mat = DEFI_MATERIAU(ELAS= _F(E = 100000.,
-					NU = 0.3,
+	mat = DEFI_MATERIAU(ELAS= _F(E = E,
+					NU = Nu,
 				       ),			
 					)
 
@@ -176,22 +212,6 @@ def Rigidite_Loc():
 				     ),
 				     )
 
-	### Affectation des conditions limites
-	# Encastrement
-	# GROUP_MA => group of edges
-	Fix = AFFE_CHAR_CINE(MODELE = mod,
-			     MECA_IMPO = (_F(GROUP_MA = 'Wd',
-					    DX = 0., DY = 0.
-					    ),
-					  )
-			     )
-	# Effort imposé
-	Fd = AFFE_CHAR_MECA(MODELE = mod,
-			    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=0,FY=10),
-			    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
-		           #PRES_REP = _F(GROUP_MA='Fd',PRES=10),
-		           )
-
 	# Calcul des matrices de rigidité élémentaires
 	matElem = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=mod, CHAM_MATER=Mat)
 
@@ -199,54 +219,22 @@ def Rigidite_Loc():
 	numDDL = NUME_DDL(MATR_RIGI=matElem, );
 
 	# Assemblage de la matrice de rigidité
-	matAss = ASSE_MATRICE(MATR_ELEM=matElem, NUME_DDL=numDDL, CHAR_CINE=Fix)
-
-	# Calcul du second membre lié aux CL de Dirichlet
-	vcine = CALC_CHAR_CINE(NUME_DDL=numDDL, CHAR_CINE=Fix,);
-
-	# Calcul du second membre lié aux CL de Neumann
-	vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
-	vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
+	matAss = ASSE_MATRICE(MATR_ELEM=matElem, NUME_DDL=numDDL)
 
 	# Factorisation de la matrice de rigidité et prise en compte des CL de 
 	# Dirichlet éliminées
-	matAss = FACTORISER(reuse=matAss,MATR_ASSE=matAss, METHODE='MUMPS',);
-
-	# Résolution du problèm Ku=F
-	sol = RESOUDRE(MATR=matAss, CHAM_NO=vneum, CHAM_CINE=vcine,)
-
-	# Création du concept de résultat
-	Res = CREA_RESU(OPERATION = 'AFFE',
-		        TYPE_RESU = 'EVOL_ELAS',
-		        NOM_CHAM = 'DEPL',
-		        AFFE = _F(CHAM_GD = sol,
-		                MODELE = mod,
-		                CHAM_MATER = Mat,
-		                INST = 1.
-		                )
-		        )
-
-	# Calcul des champs de réactions nodales
-	Res = CALC_CHAMP(reuse = Res,
-		         RESULTAT = Res,
-		         FORCE = 'REAC_NODA',
-		         TOUT = 'OUI',
-		         )
-		         
-
-	# Sauvegarde au format med
-	IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=Res))
-
-
-	### Exemple de passage aster->numpy et numpy->aster
+	#matAss = FACTORISER(reuse=matAss,MATR_ASSE=matAss, METHODE='MUMPS',);
 
 	# Conversion de la matrice de rigidité au format sparse
 	matAssPython = matAss.EXTR_MATR(sparse='True')
 	matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeud,2*nbNoeud)).tocsc()
-
-	# Conversion du champ de déplacement en python (ça s'est facile)
-	topo = sol.EXTR_COMP(topo=1).noeud # Numéro des noeux associés aux degrés de liberté
-	NO = ['N{}'.format(ii) for ii in sorted(list(set(list(topo))))] # Liste de noeuds
-	deplPython = sol.EXTR_COMP().valeurs # Valeur du champ au format numpy
-	return matAssPython, deplPython
+	
+	DETRUIRE(CONCEPT=_F(NOM=asMesh))
+	DETRUIRE(CONCEPT=_F(NOM=mod))
+	DETRUIRE(CONCEPT=_F(NOM=Mat))
+	DETRUIRE(CONCEPT=_F(NOM=mat))
+	DETRUIRE(CONCEPT=_F(NOM=matElem))
+	DETRUIRE(CONCEPT=_F(NOM=matAss))
+	DETRUIRE(CONCEPT=_F(NOM=numDDL))
+	return matAssPython, nbNoeud
 	

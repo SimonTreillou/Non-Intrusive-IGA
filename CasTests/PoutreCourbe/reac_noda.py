@@ -1,5 +1,7 @@
 from code_aster.Cata.Legacy.Syntax import _F
 from code_aster.Cata.Commands import CREA_RESU
+from code_aster.Cata.Commands import CALC_CHAMP
+from code_aster.Cata.Commands import CREA_CHAMP
 
 def create_resu(field,model,mat,char_cine=None):
     """
@@ -51,7 +53,8 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
     resu = create_resu(field,model,mat,char_cine)
     resu = CALC_CHAMP(reuse = resu,
                       FORCE = 'REAC_NODA',
-                      GROUP_MA = group,
+                      TOUT='OUI',
+                      #GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
                       RESULTAT = resu,
                       INST=0.)
     toto = CREA_CHAMP(OPERATION = 'EXTR',
@@ -60,7 +63,7 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
                                 RESULTAT = resu,
                                 INST=0.
                                 )
-    nodal_reaction = CREA_CHAMP(OPERATION = 'ASSE',
+    nodalrea = CREA_CHAMP(OPERATION = 'ASSE',
                                 TYPE_CHAM = 'NOEU_DEPL_R',
                                 MODELE = model,
                                 ASSE = _F(CHAM_GD = toto,GROUP_MA = group),

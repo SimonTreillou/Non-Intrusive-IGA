@@ -4,15 +4,48 @@
 import numpy as np
 from numpy import linalg
 import scipy.sparse as sp
+import scipy.sparse.linalg as splalg
 import sys
 sys.path.insert( 0, '/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe')
 import reac_noda as rn
 import libaster as la
 
-KG, UG = la.Rigidite_Glob()
+DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
 
-print('yoyo')
-sp.save_npz('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe/KG.npz', KG)
-np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe/UG.npy',UG)
+G = la.Modele(meshName='global')
+L = la.Modele(meshName='local')
+KG,UG,nbNoeudsG = G.Rigidite()
+#KG, UG, nbNoeudsG = la.Rigidite_Glob()
+
+KL, nbNoeudsL = L.Rigidite()
+#KL, nbNoeudsL     = la.Rigidite_Loc()
+
+
+#sp.save_npz('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe/KG.npz', KG)
+#np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe/UG.npy',UG)
 print(type(KG))
 print(type(UG))
+#print(type(KL))
+
+KGLU = splalg.splu(KG)
+FG = KG.dot(UG)
+FGG = np.copy(FG)
+
+for ifp in range(1,30):             ### REMPLACER PAR WHILE OU RAJOUTER ERREUR
+    print('iter #'+str(ifp))
+    ### GLOBAL
+    FGG = FG #- ...
+    UG=KGLU.solve(FGG)
+    #FG=F - CG.T.dot(LAM) + KG.dot(UGold)
+    #UG[rep]=IGALU.solve(FG[rep])
+
+       # err=np.r_[err,np.linalg.norm(UG-UGold)/np.linalg.norm(UG)]
+
+    ### LOCAL
+    #FL=np.zeros(mf.ndof+ndof_interf)
+    #FL[mf.ndof:]=-CG.dot(UG)
+    #UL=EFLU.solve(FL)
+    #LAM=UL[mf.ndof:]
+    #print(np.linalg.norm(UL[:mf.ndof]))
+    #mf.VTKSol('marie_loc',UL[:mf.ndof])
+    #UGold=UG.copy()
