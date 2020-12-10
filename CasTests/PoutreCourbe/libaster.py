@@ -24,42 +24,24 @@ from code_aster.Cata.Commands import RESOUDRE
 from code_aster.Cata.Commands import CALC_CHAMP
 from code_aster.Cata.Commands import IMPR_RESU
 from code_aster.Cata.Commands import DETRUIRE
-import reac_noda as rn
+#import reac_noda as rn
 
 
-class Modele:
-	def __init__(self,E=100000.,Nu=0.3,meshName='global',fx=0.,fy=10.):
-		self.E = E
-		self.Nu = Nu
-		self.meshName = meshName
-		self.fx = fx
-		self.fy = fy
-		
-	def Rigidite(self):
-		if self.meshName =='global':
-			return Rigidite_Glob(self.E,self.Nu)
-		else:
-			return Rigidite_Loc(self.E,self.Nu)
-
-
-
-
-
-def Rigidite_Glob(E=100000.,Nu=0.3,fx=0.,fy=10.):
+def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
 
 	### Lecture du maillage
-	asMesh = LIRE_MAILLAGE(FORMAT = 'MED',
+	asMeshG = LIRE_MAILLAGE(FORMAT = 'MED', 
 			       UNITE = 20,						# Unité logique du fichier de maillage
 			       NOM_MED = 'global',					# Nom du maillage au sein du fichier
 			       INFO = 1,
 			       )
 
 	# Nombre de noeuds physiques du maillage
-	nbNoeud = asMesh.sdj.DIME.get()[0]
-	dim = 2 # Dimension du problème
+	nbNoeudG = asMeshG.sdj.DIME.get()[0]
+	dimG = 2 # Dimension du problème
 
 	### Affectation des modèles
-	mod = AFFE_MODELE(MAILLAGE = asMesh,
+	modG = AFFE_MODELE(MAILLAGE = asMeshG,
 			  AFFE = (
 				  _F(TOUT = 'OUI',				# Modèle de la structure
 				    PHENOMENE = 'MECANIQUE',
@@ -69,15 +51,15 @@ def Rigidite_Glob(E=100000.,Nu=0.3,fx=0.,fy=10.):
 				  )
 
 	### Définition des matériaux
-	mat = DEFI_MATERIAU(ELAS= _F(E = E,
+	matG = DEFI_MATERIAU(ELAS= _F(E = E,
 					NU = Nu,
 				       ),			
 					)
 
 	### Affectation des matériaux
-	Mat  = AFFE_MATERIAU(MAILLAGE = asMesh,
+	MatG  = AFFE_MATERIAU(MAILLAGE = asMeshG,
 			     AFFE = (_F(TOUT = 'OUI',
-				       MATER = mat,
+				       MATER = matG,
 				       ),
 				     ),
 				     )
@@ -85,156 +67,163 @@ def Rigidite_Glob(E=100000.,Nu=0.3,fx=0.,fy=10.):
 	### Affectation des conditions limites
 	# Encastrement
 	# GROUP_MA => group of edges
-	Fix = AFFE_CHAR_CINE(MODELE = mod,
+	FixG = AFFE_CHAR_CINE(MODELE = modG,
 			     MECA_IMPO = (_F(GROUP_MA = 'Wd',
 					    DX = 0., DY = 0.
 					    ),
 					  )
 			     )
 	# Effort imposé
-	Fd = AFFE_CHAR_MECA(MODELE = mod,
+	FdG = AFFE_CHAR_MECA(MODELE = modG,
 			    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=fx,FY=fy),
 			    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
 		           #PRES_REP = _F(GROUP_MA='Fd',PRES=10),
 		           )
 
 	# Calcul des matrices de rigidité élémentaires
-	matElem = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=mod, CHAM_MATER=Mat)
+	matElemG = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modG, CHAM_MATER=MatG)
 
 	# Calcul de la numérotation
-	numDDL = NUME_DDL(MATR_RIGI=matElem, );
+	numDDLG = NUME_DDL(MATR_RIGI=matElemG, );
 
 	# Assemblage de la matrice de rigidité
-	matAss = ASSE_MATRICE(MATR_ELEM=matElem, NUME_DDL=numDDL, CHAR_CINE=Fix)
+	matAssG = ASSE_MATRICE(MATR_ELEM=matElemG, NUME_DDL=numDDLG, CHAR_CINE=FixG)
 
 	# Calcul du second membre lié aux CL de Dirichlet
-	vcine = CALC_CHAR_CINE(NUME_DDL=numDDL, CHAR_CINE=Fix,);
+	vcineG = CALC_CHAR_CINE(NUME_DDL=numDDLG, CHAR_CINE=FixG,);
 
 	# Calcul du second membre lié aux CL de Neumann
-	vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
-	vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
+	vecElemG = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=FdG,CHAM_MATER=MatG)
+	vneumG = ASSE_VECTEUR(VECT_ELEM=vecElemG,NUME_DDL=numDDLG)
 
 	# Factorisation de la matrice de rigidité et prise en compte des CL de 
 	# Dirichlet éliminées
-	matAss = FACTORISER(reuse=matAss,MATR_ASSE=matAss, METHODE='MUMPS',);
-
-	# Résolution du problèm Ku=F
-	sol = RESOUDRE(MATR=matAss, CHAM_NO=vneum, CHAM_CINE=vcine,)
-
-	# Création du concept de résultat
-	Res = CREA_RESU(OPERATION = 'AFFE',
-		        TYPE_RESU = 'EVOL_ELAS',
-		        NOM_CHAM = 'DEPL',
-		        AFFE = _F(CHAM_GD = sol,
-		                MODELE = mod,
-		                CHAM_MATER = Mat,
-		                INST = 1.
-		                )
-		        )
-
-	# Calcul des champs de réactions nodales
-	Res = CALC_CHAMP(reuse = Res,
-		         RESULTAT = Res,
-		         FORCE = 'REAC_NODA',
-		         TOUT = 'OUI',
-		         )
-		         
-	# Sauvegarde au format med
-	IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=Res))
-
-
-	### Exemple de passage aster->numpy et numpy->aster
-
-	# Conversion de la matrice de rigidité au format sparse
-	matAssPython = matAss.EXTR_MATR(sparse='True')
-	matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeud,2*nbNoeud)).tocsc()
-
-	# Conversion du champ de déplacement en python (ça s'est facile)
-	topo = sol.EXTR_COMP(topo=1).noeud # Numéro des noeux associés aux degrés de liberté
-	NO = ['N{}'.format(ii) for ii in sorted(list(set(list(topo))))] # Liste de noeuds
-	deplPython = sol.EXTR_COMP().valeurs # Valeur du champ au format numpy
+	matAssG = FACTORISER(reuse=matAssG,MATR_ASSE=matAssG, METHODE='MUMPS',);
 	
-	#### DETRUIRE CONCEPTS
-	#resuu = rn.create_resu(sol,mod,Mat)
-	champp = rn.compute_nodal_reaction_from_field_on_group(sol,mod,Mat,'Fd')
-	DETRUIRE(CONCEPT=_F(NOM=asMesh))
-	DETRUIRE(CONCEPT=_F(NOM=mod))
-	DETRUIRE(CONCEPT=_F(NOM=Mat))
-	DETRUIRE(CONCEPT=_F(NOM=mat))
-	DETRUIRE(CONCEPT=_F(NOM=Fix))
-	DETRUIRE(CONCEPT=_F(NOM=Fd))
-	DETRUIRE(CONCEPT=_F(NOM=matElem))
-	DETRUIRE(CONCEPT=_F(NOM=matAss))
-	DETRUIRE(CONCEPT=_F(NOM=numDDL))
-	DETRUIRE(CONCEPT=_F(NOM=vneum))
-	DETRUIRE(CONCEPT=_F(NOM=vcine))
-	DETRUIRE(CONCEPT=_F(NOM=vecElem))
-	DETRUIRE(CONCEPT=_F(NOM=sol))
-	DETRUIRE(CONCEPT=_F(NOM=Res))
-	return matAssPython, deplPython, nbNoeud
+
+	return matAssG, vcineG, vneumG, matG, modG  
 	
 	
-def Rigidite_Loc(E,Nu):
-	#DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
-
+def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
 	### Lecture du maillage
-	asMesh = LIRE_MAILLAGE(FORMAT = 'MED',
-			       UNITE = 21,						# Unité logique du fichier de maillage
-			       NOM_MED = 'fish',					# Nom du maillage au sein du fichier
-			       INFO = 1,
-			       )
-
+	asMeshL = LIRE_MAILLAGE(FORMAT = 'MED',
+		   UNITE = 22,                           # Unité logique du fichier de maillage
+		   NOM_MED = 'fish',                    # Nom du maillage au sein du fichier
+		   INFO = 1,
+		   )
 	# Nombre de noeuds physiques du maillage
-	nbNoeud = asMesh.sdj.DIME.get()[0]
+	nbNoeudL = asMeshL.sdj.DIME.get()[0]
 	dim = 2 # Dimension du problème
 
 	### Affectation des modèles
-	mod = AFFE_MODELE(MAILLAGE = asMesh,
-			  AFFE = (
-				  _F(TOUT = 'OUI',				# Modèle de la structure
-				    PHENOMENE = 'MECANIQUE',
-				    MODELISATION = 'C_PLAN',
-				    ),
-				  )
-				  )
+	modL = AFFE_MODELE(MAILLAGE = asMeshL,
+	      AFFE = (
+		  _F(TOUT = 'OUI',                # Modèle de la structure
+		    PHENOMENE = 'MECANIQUE',
+		    MODELISATION = 'C_PLAN',
+		    ),
+		  )
+		  )
 
 	### Définition des matériaux
-	mat = DEFI_MATERIAU(ELAS= _F(E = E,
-					NU = Nu,
-				       ),			
-					)
+	matL = DEFI_MATERIAU(ELAS= _F(E = E,
+		    NU = Nu,
+		       ),            
+		    )
 
 	### Affectation des matériaux
-	Mat  = AFFE_MATERIAU(MAILLAGE = asMesh,
-			     AFFE = (_F(TOUT = 'OUI',
-				       MATER = mat,
-				       ),
-				     ),
-				     )
+	MatL  = AFFE_MATERIAU(MAILLAGE = asMeshL,
+		 AFFE = (_F(TOUT = 'OUI',
+		       MATER = matL,
+		       ),
+		     ),
+		     )
+
+	# Effort imposé
+	FdL = AFFE_CHAR_MECA(MODELE = modL,
+		 FORCE_CONTOUR= _F(GROUP_MA='Wd',FX=fx,FY=fy),
+		    )
 
 	# Calcul des matrices de rigidité élémentaires
-	matElem = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=mod, CHAM_MATER=Mat)
+	matElemL = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modL, CHAM_MATER=MatL)
 
 	# Calcul de la numérotation
-	numDDL = NUME_DDL(MATR_RIGI=matElem, );
+	numDDLL = NUME_DDL(MATR_RIGI=matElemL, );
+
+	# Calcul du second membre force
+	vecElemL = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=FdL,CHAM_MATER=MatL)
+	vneumL = ASSE_VECTEUR(VECT_ELEM=vecElemL,NUME_DDL=numDDLL)
 
 	# Assemblage de la matrice de rigidité
-	matAss = ASSE_MATRICE(MATR_ELEM=matElem, NUME_DDL=numDDL)
+	matAssL = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL)
 
-	# Factorisation de la matrice de rigidité et prise en compte des CL de 
-	# Dirichlet éliminées
-	#matAss = FACTORISER(reuse=matAss,MATR_ASSE=matAss, METHODE='MUMPS',);
+	return matAssL, vneumL, MatL, modL
 
-	# Conversion de la matrice de rigidité au format sparse
-	matAssPython = matAss.EXTR_MATR(sparse='True')
-	matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeud,2*nbNoeud)).tocsc()
-	
-	DETRUIRE(CONCEPT=_F(NOM=asMesh))
-	DETRUIRE(CONCEPT=_F(NOM=mod))
-	DETRUIRE(CONCEPT=_F(NOM=Mat))
-	DETRUIRE(CONCEPT=_F(NOM=mat))
-	DETRUIRE(CONCEPT=_F(NOM=matElem))
-	DETRUIRE(CONCEPT=_F(NOM=matAss))
-	DETRUIRE(CONCEPT=_F(NOM=numDDL))
-	return matAssPython, nbNoeud
+def create_resu(field,model,mat,char_cine=None):
+    """
+    Create an aster concept of results from an aster field obtained by a solve.
+    Input:
+        -field: aster displacement field
+        -model: aster model
+        -mat: aster assigned material
+        -char_cine: dirichlet boundary conditions
+    Output:
+        -aster result
+    """
+    if char_cine:
+        resu = CREA_RESU(OPERATION = 'AFFE',
+                         TYPE_RESU = 'EVOL_ELAS',
+                         NOM_CHAM = 'DEPL',
+                         EXCIT = _F(CHARGE = char_cine),
+                         AFFE = _F(CHAM_GD = field,
+                                   MODELE = model,
+                                   CHAM_MATER = mat,
+                                   INST = 0.,)
+                         )
+    else:
+        resu = CREA_RESU(OPERATION = 'AFFE',
+                     TYPE_RESU = 'EVOL_ELAS',
+                     NOM_CHAM = 'DEPL',
+                     AFFE = _F(CHAM_GD = field,
+                               MODELE = model,
+                               CHAM_MATER = mat,
+                               INST = 0.,)
+                    )
+
+    return resu
+
+
+def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=None):
+    """
+    Compute nodal reaction from a displacement field on a specific group.
+    Input:
+        -field: aster displacement field
+        -model: aster model,
+        -mat: assigned material on a mesh
+        -char_cine: dirichlet boundary conditions
+        -group: group where the nodal reaction has to be computed
+    Output:
+        -asterField instance
+    """
+    ### Create result concept from the displacement field
+    resu = create_resu(field,model,mat,char_cine)
+    resu = CALC_CHAMP(reuse = resu,
+                      FORCE = 'REAC_NODA',
+                      TOUT='OUI',
+                      #GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
+                      RESULTAT = resu,
+                      INST=0.)
+    toto = CREA_CHAMP(OPERATION = 'EXTR',
+                                NOM_CHAM = 'REAC_NODA',
+                                TYPE_CHAM = 'NOEU_DEPL_R',
+                                RESULTAT = resu,
+                                INST=0.
+                                )
+    nodalrea = CREA_CHAMP(OPERATION = 'ASSE',
+                                TYPE_CHAM = 'NOEU_DEPL_R',
+                                MODELE = model,
+                                ASSE = _F(CHAM_GD = toto,GROUP_MA = group),
+                                )
+
+    return toto.EXTR_COMP().valeurs
 	
