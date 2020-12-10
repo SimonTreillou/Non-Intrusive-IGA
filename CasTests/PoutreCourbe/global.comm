@@ -33,6 +33,16 @@ FGG = np.copy(FG)
 
 for ifp in range(1,30):             ### REMPLACER PAR WHILE OU RAJOUTER ERREUR
     print('iter #'+str(ifp))
+    
+LAM = 
+Ka = 
+
+
+vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
+
+vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
+
+sol = RESOUDRE(MATR=KG, CHAM_NO=vneum, CHAM_CINE=vcine,)
     ### GLOBAL
     FGG = FG #- ...
     UG=KGLU.solve(FGG)
