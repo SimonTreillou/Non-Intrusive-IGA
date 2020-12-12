@@ -6,43 +6,101 @@ from numpy import linalg
 import scipy.sparse as sp
 import scipy.sparse.linalg as splalg
 import sys
-sys.path.insert( 0, '/home/larousse/Bureau/INSA/5A/Projet/Git/Non-Intrusive-IGA/CasTests/PoutreCourbe')
+sys.path.insert( 0, '/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe')
 import reac_noda as rn
 import libaster as la
 
+### GLOBAL.MED
+## GROUP OF EDGES : 
+## Wd, Fd 
+## GROUP OF FACES :
+## DiriG, ForG, AuxiG
+
+## DEBUT CODE ASTER
 DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
 
-KG, vciG, vneG, mat, mod  = la.Global()
-KL, vneL, matL, modL  = la.Local()
-#KG, UG, nbNoeudsG = la.Rigidite_Glob()
+## INITIALISATION : KG, KL, conditions de Dirichlet, FG, FL..
+KG, vciG, vneG, MatG, modG, numDDLG  = la.Global()
+KL, vneL, matL, modL,numDDLL  = la.Local()
 
 
-#KL, nbNoeudsL = L.Rigidite()
-#KL, nbNoeudsL     = la.Rigidite_Loc()
+## PREMIERE ITERATION
+# Global : KG*UG=FG
+UG = RESOUDRE(MATR=KG, CHAM_NO=vneG, CHAM_CINE=vciG,)
+
+# Local : KL*UL=FL avec Dirichlet déplacement
 
 
-#sp.save_npz('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe/KG.npz', KG)
-#np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe/UG.npy',UG)
-#print(type(KG))
-#print(type(UG))
-#print(type(KL))
+UGR = CREA_RESU(OPERATION = 'AFFE',
+		        TYPE_RESU = 'EVOL_ELAS',
+		        NOM_CHAM = 'DEPL',
+		        AFFE = _F(CHAM_GD = UG,
+		                INST = 1.
+		                )
+		        )
+		     
 
-#KGLU = splalg.splu(KG)
-#FG = KG.dot(UG)
-#FGG = np.copy(FG)
+# les deplacements imposes sur le bord de MO2 sont obtenus par projection du resultat RESU1 sur le bord de MO2:
+UIMP=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modL,
+                VIS_A_VIS=_F(TOUT_1='OUI',GROUP_MA_2='Wd', CAS_FIGURE='2D'))
+
+UGL=AFFE_CHAR_CINE(MODELE=modL, EVOL_IMPO=UIMP)
+vciL= CALC_CHAR_CINE(NUME_DDL=numDDLL, CHAR_CINE=UGL,);
+
+# LAMBDA = la.computre_nodal_reaction_from_field_on_group(..,modL,'',char_cine=None)
+KAUG = la.compute_nodal_reaction_from_field_on_group(UG,modG,MatG,'AuxiG',char_cine=None)
 
 
-#for ifp in range(1,30):             ### REMPLACER PAR WHILE OU RAJOUTER ERREUR
-#    print('iter #'+str(ifp))
-#    
-#    LAM = RESOUDRE(MATR=KL,)
-#    Ka = la.compute_nodal_reaction_from_field_on_group(UG,G,mat) 
-#    FGG = FG -LAMB + Ka
-#    vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
 
-#    vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
 
-#    sol = RESOUDRE(MATR=KG, CHAM_NO=vneum, CHAM_CINE=vcine,)
+
+# Effort imposé
+KaugG = AFFE_CHAR_MECA(MODELE = modG,
+		      CHAMNO_IMPO = _F(CHAM_NO = KAUG,
+			     		COEF_IMPO = 1.,)
+		    )
+
+matAssG2 = ASSE_MATRICE(MATR_ELEM=matElemG, NUME_DDL=numDDLG, CHAR_CINE=FixG)
+
+vcineG2 = CALC_CHAR_CINE(NUME_DDL=numDDLG, CHAR_CINE=FixG,);
+
+# Calcul du second membre lié aux CL de Neumann
+vecElmG2 = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=KaugG,CHAM_MATER=MatG)
+vneumG2 = ASSE_VECTEUR(VECT_ELEM=vecElmG2,NUME_DDL=numDDLG)
+
+
+
+
+
+
+
+
+
+
+# Assemblage de la matrice de rigidité
+#matAssL2 = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL,CHAR_CINE=UGL)
+#matAssL2 = FACTORISER(reuse=matAssL2,MATR_ASSE=matAssL2, METHODE='MUMPS',);
+
+
+#UL = RESOUDRE(MATR=KL, CHAM_NO=vneL)# CHAM_CINE=vciL,)
+# Extraire React nodale
+# ...
+# Extraire KA*UG
+# ...
+# Convergence (facultatif)
+# ...
+
+for ifp in range(1,30):             ## RAJOUTER ERREUR
+    print('iter #'+str(ifp))
+    
+    #LAM = RESOUDRE(MATR=KL,)
+    #Ka = la.compute_nodal_reaction_from_field_on_group(UG,G,mat) 
+    #FGG = FG -LAMB + Ka
+    #vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
+    
+    #vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
+
+    #sol = RESOUDRE(MATR=KG, CHAM_NO=vneum, CHAM_CINE=vcine,)
     ### GLOBAL
     #FGG = FG #- ...
     #UG=KGLU.solve(FGG)

@@ -24,6 +24,7 @@ from code_aster.Cata.Commands import RESOUDRE
 from code_aster.Cata.Commands import CALC_CHAMP
 from code_aster.Cata.Commands import IMPR_RESU
 from code_aster.Cata.Commands import DETRUIRE
+from code_aster.Cata.Commands import CREA_CHAMP
 #import reac_noda as rn
 
 
@@ -68,14 +69,14 @@ def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
 	# Encastrement
 	# GROUP_MA => group of edges
 	FixG = AFFE_CHAR_CINE(MODELE = modG,
-			     MECA_IMPO = (_F(GROUP_MA = 'Wd',
+			     MECA_IMPO = (_F(GROUP_MA = 'DiriG',
 					    DX = 0., DY = 0.
 					    ),
 					  )
 			     )
 	# Effort imposé
 	FdG = AFFE_CHAR_MECA(MODELE = modG,
-			    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=fx,FY=fy),
+			    FORCE_CONTOUR= _F(GROUP_MA='ForG',FX=fx,FY=fy),
 			    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
 		           #PRES_REP = _F(GROUP_MA='Fd',PRES=10),
 		           )
@@ -101,7 +102,7 @@ def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
 	matAssG = FACTORISER(reuse=matAssG,MATR_ASSE=matAssG, METHODE='MUMPS',);
 	
 
-	return matAssG, vcineG, vneumG, matG, modG  
+	return matAssG, vcineG, vneumG, MatG, modG, numDDLG  
 	
 	
 def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
@@ -156,8 +157,8 @@ def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
 
 	# Assemblage de la matrice de rigidité
 	matAssL = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL)
-
-	return matAssL, vneumL, MatL, modL
+	#matAssL = FACTORISER(reuse=matAssL,MATR_ASSE=matAssL, METHODE='MUMPS',);
+	return matAssL, vneumL, MatL, modL, numDDLL
 
 def create_resu(field,model,mat,char_cine=None):
     """
@@ -209,8 +210,8 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
     resu = create_resu(field,model,mat,char_cine)
     resu = CALC_CHAMP(reuse = resu,
                       FORCE = 'REAC_NODA',
-                      TOUT='OUI',
-                      #GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
+                      #TOUT='OUI',
+                      GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
                       RESULTAT = resu,
                       INST=0.)
     toto = CREA_CHAMP(OPERATION = 'EXTR',
@@ -224,6 +225,6 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
                                 MODELE = model,
                                 ASSE = _F(CHAM_GD = toto,GROUP_MA = group),
                                 )
-
-    return toto.EXTR_COMP().valeurs
+    return toto
+    #return toto.EXTR_COMP().valeurs
 	
