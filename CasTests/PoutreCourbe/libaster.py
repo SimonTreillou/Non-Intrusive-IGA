@@ -225,6 +225,7 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
                                 MODELE = model,
                                 ASSE = _F(CHAM_GD = toto,GROUP_MA = group),
                                 )
+    DETRUIRE(CONCEPT=_F(NOM=resu))
     return toto
     #return toto.EXTR_COMP().valeurs
 	
