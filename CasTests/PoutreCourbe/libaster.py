@@ -69,14 +69,14 @@ def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
 	# Encastrement
 	# GROUP_MA => group of edges
 	FixG = AFFE_CHAR_CINE(MODELE = modG,
-			     MECA_IMPO = (_F(GROUP_MA = 'DiriG',
+			     MECA_IMPO = (_F(GROUP_MA = 'Wd',
 					    DX = 0., DY = 0.
 					    ),
 					  )
 			     )
 	# Effort imposé
 	FdG = AFFE_CHAR_MECA(MODELE = modG,
-			    FORCE_CONTOUR= _F(GROUP_MA='ForG',FX=fx,FY=fy),
+			    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=fx,FY=fy),
 			    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
 		           #PRES_REP = _F(GROUP_MA='Fd',PRES=10),
 		           )
@@ -101,6 +101,29 @@ def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
 	# Dirichlet éliminées
 	matAssG = FACTORISER(reuse=matAssG,MATR_ASSE=matAssG, METHODE='MUMPS',);
 	
+	# Résolution du problèm Ku=F
+	sol = RESOUDRE(MATR=matAssG, CHAM_NO=vneumG, CHAM_CINE=vcineG,)
+
+	# Création du concept de résultat
+	Res = CREA_RESU(OPERATION = 'AFFE',
+		        TYPE_RESU = 'EVOL_ELAS',
+		        NOM_CHAM = 'DEPL',
+		        AFFE = _F(CHAM_GD = sol,
+		                MODELE = modG,
+		                CHAM_MATER = MatG,
+		                INST = 1.
+		                )
+		        )
+
+	# Calcul des champs de réactions nodales
+	Res = CALC_CHAMP(reuse = Res,
+		         RESULTAT = Res,
+		         FORCE = 'REAC_NODA',
+		         TOUT = 'OUI',
+		         )
+		         
+	# Sauvegarde au format med
+	IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=Res))
 
 	return matAssG, vcineG, vneumG, MatG, modG, numDDLG  
 	

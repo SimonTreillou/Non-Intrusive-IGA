@@ -34,8 +34,8 @@ KL, vneL, matL, modL,numDDLL  = la.Local()
 # Global : KG*UG=FG
 ########################################################################################################
 
-UG = RESOUDRE(MATR=KG, CHAM_NO=vneG, CHAM_CINE=vciG,)
-
+UG = RESOUDRE(MATR=matAssG, CHAM_NO=vneumG, CHAM_CINE=vcineG,)
+   
 ########################################################################################################
 # Local : KL*UL=FL avec Dirichlet déplacement
 ########################################################################################################
@@ -70,18 +70,32 @@ UL = RESOUDRE(MATR=matAssL2, CHAM_NO=vneL,CHAM_CINE=vciL,)
 # Extraction de Lambda / réaction nodale
 ########################################################################################################
 
-LAMBDA = la.compute_nodal_reaction_from_field_on_group(UL,modL,matL,'Diri',char_cine=FdL)
+LAMBDA = la.compute_nodal_reaction_from_field_on_group(UL,modL,matL,'Diri',char_cine=None)
 
 ########################################################################################################
 # Extraction de KA*UG
 ########################################################################################################
-
-#KAUG = la.compute_nodal_reaction_from_field_on_group(UG,modG,MatG,'AuxiG',char_cine=FdG)
+DETRUIRE(CONCEPT=_F(NOM=toto))
+DETRUIRE(CONCEPT=_F(NOM=nodalrea))
+KAUG = la.compute_nodal_reaction_from_field_on_group(UG,modG,MatG,'AuxiG',char_cine=None)
 
 #KaugG = AFFE_CHAR_MECA(MODELE = modG,	
 #		       CHAMNO_IMPO = _F(CHAM_NO = KAUG,
 #		  	     		COEF_IMPO = 1.,)
 #		    )
+
+total = CREA_CHAMP(OPERATION='COMB',
+		    TYPE_CHAM='NOEU_DEPL_R',
+		    COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
+		    	  _F(CHAM_GD=LAMBDA,COEF_R=-1.),
+		    	  _F(CHAM_GD=vneumG,COEF_R=1.),)
+		   )
+		
+totalG = AFFE_CHAR_MECA(MODELE = modG,	
+		        CHAMNO_IMPO = _F(CHAM_NO = total,
+		  	     		COEF_IMPO = 1.,)
+		        )
+
 #matElmG2 = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modG, CHAM_MATER=MatG,CHARGE=KaugG)
 
 #numDDLG2 = NUME_DDL(MATR_RIGI=matElmG2, );
@@ -92,9 +106,9 @@ LAMBDA = la.compute_nodal_reaction_from_field_on_group(UL,modL,matL,'Diri',char_
 #vcineG2 = CALC_CHAR_CINE(NUME_DDL=numDDLG, CHAR_CINE=FixG,);
 
 # Calcul du second membre lié aux CL de Neumann
-#vecElmG2 = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=KaugG,CHAM_MATER=MatG)
+#vecElmG2 = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=totalG,CHAM_MATER=MatG)
 #vneumG2 = ASSE_VECTEUR(VECT_ELEM=vecElmG2,NUME_DDL=numDDLG)
-
+UG2 = RESOUDRE(MATR=KG, CHAM_NO=total, CHAM_CINE=vciG,)
 ########################################################################################################
 # Convergence (facultatif)
 ########################################################################################################
@@ -171,46 +185,46 @@ for ifp in range(1,30):
 ########################################################################################################    
     
 # Création du concept de résultat
-#ResG = CREA_RESU(OPERATION = 'AFFE',
-#		 TYPE_RESU = 'EVOL_ELAS',
-#		 NOM_CHAM = 'DEPL',
-#		 AFFE = _F(CHAM_GD = UG,
-#		           MODELE = modG,
-#		           CHAM_MATER = MatG,
-#		           INST = 1.
-#		           )
-#		)
+ResG = CREA_RESU(OPERATION = 'AFFE',
+		 TYPE_RESU = 'EVOL_ELAS',
+		 NOM_CHAM = 'DEPL',
+		 AFFE = _F(CHAM_GD = UG,
+		           MODELE = modG,
+		           CHAM_MATER = MatG,
+		           INST = 1.
+		           )
+		)
 
 # Calcul des champs de réactions nodales
-#ResG = CALC_CHAMP(reuse = ResG,
-#	         RESULTAT = ResG,
-#	         FORCE = 'REAC_NODA',
-#	         TOUT = 'OUI',
-#	         )
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         FORCE = 'REAC_NODA',
+	         TOUT = 'OUI',
+	         )
 		         
 # Sauvegarde au format med
-#IMPR_RESU(FORMAT = 'MED',UNITE=82,RESU=_F(RESULTAT=ResG))
+IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=ResG))
    
 # Création du concept de résultat
-#ResL = CREA_RESU(OPERATION = 'AFFE',
-#		 TYPE_RESU = 'EVOL_ELAS',
-#		 NOM_CHAM = 'DEPL',
-#		 AFFE = _F(CHAM_GD = UL,
-#		           MODELE = modL,
-#		           CHAM_MATER = matL,
-#		           INST = 1.
-#		           )
-#		)
+ResL = CREA_RESU(OPERATION = 'AFFE',
+		 TYPE_RESU = 'EVOL_ELAS',
+		 NOM_CHAM = 'DEPL',
+		 AFFE = _F(CHAM_GD = UL,
+		           MODELE = modL,
+		           CHAM_MATER = matL,
+		           INST = 1.
+		           )
+		)
 
 # Calcul des champs de réactions nodales
-#ResL = CALC_CHAMP(reuse = ResL,
-#	         RESULTAT = ResL,
-#	         FORCE = 'REAC_NODA',
-#	         TOUT = 'OUI',
-#	         )
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         FORCE = 'REAC_NODA',
+	         TOUT = 'OUI',
+	         )
 		         
 # Sauvegarde au format med
-#IMPR_RESU(FORMAT = 'MED',UNITE=83,RESU=_F(RESULTAT=ResL))
+IMPR_RESU(FORMAT = 'MED',UNITE=83,RESU=_F(RESULTAT=ResL))
 
 
 
