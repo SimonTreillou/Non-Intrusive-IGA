@@ -231,12 +231,14 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
     """
     ### Create result concept from the displacement field
     resu = create_resu(field,model,mat,char_cine)
-    resu = CALC_CHAMP(reuse = resu,
-                      FORCE = 'REAC_NODA',
-                      #TOUT='OUI',
-                      GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
-                      RESULTAT = resu,
-                      INST=0.)
+
+    resu= CALC_CHAMP(reuse = resu,
+                     FORCE = 'REAC_NODA',
+                     #TOUT='OUI',
+                     GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
+                     RESULTAT = resu,
+                     INST=0.)
+
     toto = CREA_CHAMP(OPERATION = 'EXTR',
                                 NOM_CHAM = 'REAC_NODA',
                                 TYPE_CHAM = 'NOEU_DEPL_R',
@@ -248,6 +250,7 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
                                 MODELE = model,
                                 ASSE = _F(CHAM_GD = toto,GROUP_MA = group),
                                 )
+    
     DETRUIRE(CONCEPT=_F(NOM=resu))
     return toto
     #return toto.EXTR_COMP().valeurs
