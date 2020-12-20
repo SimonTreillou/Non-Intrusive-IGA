@@ -1,0 +1,3431 @@
+# ------------------------------------------------------------------------------------------
+# Impression du contenu du fichier de commandes à exécuter :
+# ------------------------------------------------------------------------------------------
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import numpy as np
+from numpy import linalg
+import scipy.sparse as sp
+import scipy.sparse.linalg as splalg
+import sys
+sys.path.insert( 0, '/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case')
+import libastertoy as la
+
+### GLOBAL.MED
+## GROUP OF EDGES : 
+## Wd, Fd, Auxi
+## GROUP OF FACES :
+## DiriG, ForG, AuxiG
+
+## DEBUT CODE ASTER
+DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
+
+
+########################################################################################################
+## INITIALISATION : KG, KL, conditions de Dirichlet, FG, FL..
+########################################################################################################
+
+KG, vciG, vneG, MatG, modG, numDDLG, KGP  = la.Global()
+
+KL, vneL, matL, modL,numDDLL  = la.Local()
+
+########################################################################################################
+########################################################################################################
+# Nombre de noeuds physiques du maillage
+nbNoeudA = asMeshG.sdj.DIME.get()[0]
+dimA = 2 # Dimension du problème
+
+### Affectation des modèles
+modA = AFFE_MODELE(MAILLAGE = asMeshG,
+		  AFFE = (
+			  _F(TOUT='OUI',				# Modèle de la structure
+			    PHENOMENE = 'MECANIQUE',
+			    MODELISATION = 'C_PLAN',
+			    ),
+			  )
+			  )
+
+### Définition des matériaux
+matA = DEFI_MATERIAU(ELAS= _F(E = 100000.,
+				NU = 0.3,
+			       ),			
+				)
+
+### Affectation des matériaux
+MatA  = AFFE_MATERIAU(MAILLAGE = asMeshG,
+		     AFFE = (_F(TOUT='OUI',
+			       MATER = matA,
+			       ),
+			     ),
+			     )
+
+### Affectation des conditions limites
+# Encastrement
+# GROUP_MA => group of edges
+FixA = AFFE_CHAR_CINE(MODELE = modA,
+		     MECA_IMPO = (_F(GROUP_MA = 'Auxi',
+				    DX = 0., DY = 0.
+				    ),
+				  )
+		     )
+# Effort imposé
+FdA = AFFE_CHAR_MECA(MODELE = modA,
+		    FORCE_CONTOUR= _F(GROUP_MA='Fd',FX=0.,FY=0.),
+		    #FORCE_ARETE = _F(GROUP_MA='Fd',FX=0,FY=10),
+	           #PRES_REP = _F(GROUP_MA='Fd',PRES=10),
+	           )
+
+# Calcul des matrices de rigidité élémentaires
+matElemA = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modA, CHAM_MATER=MatA)
+
+# Calcul de la numérotation
+numDDLA = NUME_DDL(MATR_RIGI=matElemA, );
+
+# Assemblage de la matrice de rigidité
+matAssA = ASSE_MATRICE(MATR_ELEM=matElemA, NUME_DDL=numDDLA, CHAR_CINE=FixA)
+
+# Calcul du second membre lié aux CL de Dirichlet
+vcineA = CALC_CHAR_CINE(NUME_DDL=numDDLA, CHAR_CINE=FixA,);
+
+# Calcul du second membre lié aux CL de Neumann
+vecElemA = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=FdA,CHAM_MATER=MatA)
+vneumA = ASSE_VECTEUR(VECT_ELEM=vecElemA,NUME_DDL=numDDLA)
+
+# Factorisation de la matrice de rigidité et prise en compte des CL de 
+# Dirichlet éliminées
+matAssA = FACTORISER(reuse=matAssA,MATR_ASSE=matAssA, METHODE='MUMPS',);
+
+matAssPA = matAssA.EXTR_MATR(sparse='True')
+matAssPA = sp.coo_matrix((matAssPA[0],(matAssPA[1],matAssPA[2])),shape=(2*nbNoeudA,2*nbNoeudA)).tocsc()
+	
+########################################################################################################
+########################################################################################################
+
+########################################################################################################
+## PREMIERE ITERATION
+########################################################################################################
+########################################################################################################
+# Global : KG*UG=FG
+########################################################################################################
+  
+UG = RESOUDRE(MATR=matAssG, CHAM_NO=vneumG, CHAM_CINE=vcineG,)
+########################################################################################################
+# Local : KL*UL=FL avec Dirichlet déplacement
+########################################################################################################
+
+# On crée UG sous forme de résultat
+UGR = CREA_RESU(OPERATION = 'AFFE',
+		        TYPE_RESU = 'EVOL_ELAS',
+		        NOM_CHAM = 'DEPL',
+		        AFFE = _F(CHAM_GD = UG,
+		        	   MODELE=modG,
+		        	   CHAM_MATER=MatG,
+		                INST = 0.,
+		                )
+		        )
+     
+
+# On projette ce résultat sur la frontière (Diri) => on a un evol	     
+UIMP=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modL,METHODE='COLLOCATION',
+                VIS_A_VIS=_F(GROUP_MA_1='Front',GROUP_MA_2='Wd', CAS_FIGURE='1.5D'))
+                            
+### OU AUXIG SUR DIRI ?????
+
+# On impose ce evol en condition de Dirichlet cinématique
+UGL=AFFE_CHAR_CINE(MODELE=modL, EVOL_IMPO=UIMP,)
+vciL= CALC_CHAR_CINE(NUME_DDL=numDDLL, CHAR_CINE=UGL,);
+  
+
+#UGL = AFFE_CHAR_MECA(MODELE=modL, CHAMNO_IMPO=_F(CHAM_NO=UIMP,COEF_IMPO=1.,))
+
+# On assemble une nouvelle matrice de rigidité 
+#matAssL2 = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL,CHAR_CINE=UGL)
+#matAssL2 = FACTORISER(reuse=matAssL2,MATR_ASSE=matAssL2, METHODE='MUMPS');
+#vecElmL2 = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=UGL,CHAM_MATER=MatL)
+#vneumL2 = ASSE_VECTEUR(VECT_ELEM=vecElmL2,NUME_DDL=numDDLL)
+# On résoud avec ces nouvelles conditions
+UL = RESOUDRE(MATR=matAssL, CHAM_NO=vneumL,CHAM_CINE=vciL,)
+# Cependant attention, on a pas fait avec dualisation lagrangienne donc UL != [UL, Lambda] 
+# mais c'est censé passer avec le compute_nodal_reaction etc
+
+########################################################################################################
+# Extraction de Lambda / réaction nodale
+########################################################################################################
+
+#LAMBDA = la.compute_nodal_reaction_from_field_on_group(UL,modL,matL,'Wd',FdL,char_cine=UGL)
+
+LAMBDAR =CREA_RESU(OPERATION = 'AFFE',
+                         TYPE_RESU = 'EVOL_ELAS',
+                         NOM_CHAM = 'DEPL',
+                         EXCIT = _F(CHARGE = UGL),
+                         AFFE = _F(CHAM_GD = UL,
+                                   MODELE = modL,
+                                   CHAM_MATER = matL,
+                                   INST = 0.,)
+                         )
+
+LAMBDAR = CALC_CHAMP(FORCE = 'REAC_NODA',
+                     reuse = LAMBDAR,
+                     MODELE=modL,
+                     CHAM_MATER=MatL,
+                     EXCIT=_F(CHARGE=UGL,),
+                     TOUT='OUI',
+                     #GROUP_MA='Wd',
+                     RESULTAT = LAMBDAR,
+                    )
+                    
+tmp = CREA_CHAMP(OPERATION = 'EXTR',
+                                NOM_CHAM = 'REAC_NODA',
+                                TYPE_CHAM = 'NOEU_DEPL_R',
+                                RESULTAT = LAMBDAR,
+                                INST=0.,
+                                )
+                    
+LAMBDA = CREA_CHAMP(OPERATION = 'ASSE',
+                                TYPE_CHAM = 'NOEU_DEPL_R',
+                                MODELE = modL,
+                                ASSE = _F(CHAM_GD = tmp,GROUP_MA = 'Wd'),
+                                )
+                                                    
+LAMBDAG=PROJ_CHAMP(RESULTAT=LAMBDAR, MODELE_1=modL,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+                   VIS_A_VIS=_F(GROUP_MA_1='Wd',GROUP_MA_2='Front', CAS_FIGURE='1.5D'))
+
+#LAMBDACH2=PROJ_CHAMP(CHAM_GD=tmp, MODELE_1=modL,MODELE_2=modG,METHODE='COLLOCATION',
+#		     VIS_A_VIS=_F(GROUP_MA_1='Wd',GROUP_MA_2='Front', CAS_FIGURE='1.5D'))
+#LAMBDACH=PROJ_CHAMP(CHAM_GD=LAMBDACH2, MODELE_1=modL,MODELE_2=modL,METHODE='COLLOCATION',
+#		     VIS_A_VIS=_F(GROUP_MA_1='Wd',GROUP_MA_2='Front', CAS_FIGURE='1.5D'))
+
+
+LAMBDACH = CREA_CHAMP(OPERATION = 'EXTR',
+                                NOM_CHAM = 'REAC_NODA',
+                                TYPE_CHAM = 'NOEU_DEPL_R',
+                                RESULTAT = LAMBDAG,
+                                INST=0.,
+                                )
+
+DETRUIRE(CONCEPT=_F(NOM=tmp))                              
+DETRUIRE(CONCEPT=_F(NOM=LAMBDA))
+DETRUIRE(CONCEPT=_F(NOM=LAMBDAR))
+DETRUIRE(CONCEPT=_F(NOM=LAMBDAG))   
+  
+
+########################################################################################################
+# Extraction de KA*UG
+########################################################################################################
+
+#	KAUG = la.compute_nodal_reaction_from_field_on_group(UG,modG,MatG,'Auxi',FdG,char_cine=FixG)
+
+UGR = CALC_CHAMP(FORCE = 'REAC_NODA',
+                     reuse = UGR,
+                     MODELE=modG,
+                     CHAM_MATER=MatG,
+                     #EXCIT=_F(CHARGE=FdG,),
+                     TOUT='OUI',
+                     PRECISION=1.0E-14,
+                     #GROUP_MA='Auxi',
+                     RESULTAT = UGR,
+                    )
+                    
+KAUG = CREA_CHAMP(OPERATION = 'EXTR',
+                        NOM_CHAM = 'REAC_NODA',
+                        TYPE_CHAM = 'NOEU_DEPL_R',
+                        RESULTAT = UGR,
+                        INST=0.
+                        ) 
+
+#KAUGG=PROJ_CHAMP(CHAM_GD=KAUG, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',
+#                   VIS_A_VIS=_F(GROUP_MA_1='Auxi',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))                        
+#KaugG = AFFE_CHAR_MECA(MODELE = modG,	
+#		       CHAMNO_IMPO = _F(CHAM_NO = KAUG,
+#		  	     		COEF_IMPO = 1.,)
+#		    )
+
+
+
+KAUG2 = PROD_MATR_CHAM(MATR_ASSE=matAssA,CHAM_NO=UG)
+
+
+
+
+KAUG2R =CREA_RESU(OPERATION = 'AFFE',
+               TYPE_RESU = 'EVOL_ELAS',
+               NOM_CHAM = 'DEPL',
+               AFFE = _F(CHAM_GD = KAUG2,
+                         MODELE = modA,
+                         CHAM_MATER = MatA,
+                         INST = 0.,)
+              )     
+KAUG2G=PROJ_CHAMP(RESULTAT=KAUG2R, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+               VIS_A_VIS=_F(GROUP_MA_1='Auxi',TOUT_2='OUI', CAS_FIGURE='2D'))                                
+KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
+                  NOM_CHAM = 'DEPL',
+                  TYPE_CHAM = 'NOEU_DEPL_R',
+                  RESULTAT = KAUG2G,
+                  INST=0.,
+                  )   
+DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G))  )  
+
+
+print(KAUG2.EXTR_COMP().valeurs)
+total = CREA_CHAMP(OPERATION='COMB',
+		    TYPE_CHAM='NOEU_DEPL_R',
+		    COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
+		    	  _F(CHAM_GD=LAMBDACH,COEF_R=-1.),
+		    	  _F(CHAM_GD=vneumG,COEF_R=1.),)
+		   )
+		
+totalG = AFFE_CHAR_MECA(MODELE = modG,	
+		        CHAMNO_IMPO = _F(CHAM_NO = total,
+		  	     		COEF_IMPO = 1.,)
+		        )
+DETRUIRE(CONCEPT=(_F(NOM=KAUG2),_F(NOM=KAUG2C)))
+#matElmG2 = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modG, CHAM_MATER=MatG,CHARGE=KaugG)
+
+#numDDLG2 = NUME_DDL(MATR_RIGI=matElmG2, );
+
+
+#matAssG2 = ASSE_MATRICE(MATR_ELEM=matElmG2, NUME_DDL=numDDLG2, CHAR_CINE=FixG)
+
+#vcineG2 = CALC_CHAR_CINE(NUME_DDL=numDDLG, CHAR_CINE=FixG,);
+
+# Calcul du second membre lié aux CL de Neumann
+#vecElmG2 = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=totalG,CHAM_MATER=MatG)
+#vneumG2 = ASSE_VECTEUR(VECT_ELEM=vecElmG2,NUME_DDL=numDDLG)
+
+########################################################################################################
+# Convergence (facultatif)
+########################################################################################################
+## .....
+#IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=UGR))
+########################################################################################################
+# BOUCLE POUR ITERATIONS = 2 .. 30
+########################################################################################################
+
+########################################################################################################
+# A FAIRE : REUTILISER CONCEPTS DANS LA BOUCLE (DETRUIRE ou astuce de Oumaziz)
+########################################################################################################
+
+
+normr = list()
+for ifp in range(1,2):             
+    print('iter #'+str(ifp))
+    
+    ####################################################################################################
+    # Résolution global
+    ####################################################################################################
+    DETRUIRE(CONCEPT=_F(NOM=UG))
+    UG = RESOUDRE(MATR=KG, CHAM_NO=total, CHAM_CINE=vciG,)
+    
+    ####################################################################################################
+    # Extraction -CG*UG
+    ####################################################################################################
+    DETRUIRE(CONCEPT=_F(NOM=UGR))
+    # On crée UG sous forme de résultat
+    UGR = CREA_RESU(OPERATION = 'AFFE',
+		    TYPE_RESU = 'EVOL_ELAS',
+		    NOM_CHAM = 'DEPL',
+        	    AFFE = _F(CHAM_GD = UG,
+        	    	      MODELE=modG,
+        	    	      CHAM_MATER=MatG,
+		              INST = 0.
+		             )
+		    )    
+		    
+    #UGR = CALC_CHAMP(FORCE = 'REAC_NODA',
+    #                 reuse = UGR,
+    #                 MODELE=modG,
+    #                 CHAM_MATER=MatG,
+    #                 EXCIT=_F(CHARGE=totalG,),
+    #                 #TOUT='OUI',
+    #                 GROUP_MA='Auxi',
+    #                 RESULTAT = UGR,
+    #                )
+    #IMPR_RESU(FORMAT = 'MED',UNITE=84,RESU=_F(RESULTAT=UGR))
+    DETRUIRE(CONCEPT=_F(NOM=UIMP))
+    # On projette ce résultat sur la frontière (Diri) => on a un evol	     
+    UIMP=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modL,METHODE='COLLOCATION',
+                    VIS_A_VIS=_F(GROUP_MA_1='Front',GROUP_MA_2='Wd', CAS_FIGURE='1.5D'))
+    DETRUIRE(CONCEPT=_F(NOM=UGL))
+    DETRUIRE(CONCEPT=_F(NOM=vciL))
+    UGL=AFFE_CHAR_CINE(MODELE=modL, EVOL_IMPO=UIMP,)
+    vciL= CALC_CHAR_CINE(NUME_DDL=numDDLL, CHAR_CINE=UGL,);
+
+    # On impose ce evol en condition de Dirichlet cinématique
+    #UGL=AFFE_CHAR_CINE(MODELE=modL, EVOL_IMPO=UIMP,)
+    #vciL= CALC_CHAR_CINE(NUME_DDL=numDDLL, CHAR_CINE=UGL,);
+    #DETRUIRE(CONCEPT=_F(NOM=UGR))
+    ####################################################################################################
+    # Résolution local avec déplacement imposé
+    ####################################################################################################
+    #DETRUIRE(CONCEPT=_F(NOM=matAssL2))
+    # On assemble une nouvelle matrice de rigidité 
+#    matAssL2 = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL,CHAR_CINE=UGL)
+#    matAssL2 = FACTORISER(reuse=matAssL2,MATR_ASSE=matAssL2, METHODE='MUMPS');
+    DETRUIRE(CONCEPT=_F(NOM=UL))
+    # On résoud avec ces nouvelles conditions
+#    UL = RESOUDRE(MATR=matAssL2, CHAM_NO=vneL,CHAM_CINE=vciL,)
+    UL = RESOUDRE(MATR=matAssL, CHAM_NO=vneumL,CHAM_CINE=vciL,)
+    
+    ####################################################################################################
+    # Extraction réaction nodale
+    ####################################################################################################
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDACH))
+
+    LAMBDAR =CREA_RESU(OPERATION = 'AFFE',
+                       TYPE_RESU = 'EVOL_ELAS',
+                       NOM_CHAM = 'DEPL',
+                       EXCIT = _F(CHARGE = UGL),
+                       AFFE = _F(CHAM_GD = UL,
+                                 MODELE = modL,
+                                 CHAM_MATER = matL,
+                                 INST = 0.,)
+                      )
+    LAMBDAR = CALC_CHAMP(FORCE = 'REAC_NODA',
+                         reuse = LAMBDAR,
+                         MODELE=modL,
+                         CHAM_MATER=MatL,
+                         EXCIT=_F(CHARGE=UGL,),
+                         TOUT='OUI',
+                         RESULTAT = LAMBDAR,
+                        )
+                        
+    tmp = CREA_CHAMP(OPERATION = 'EXTR',
+                     NOM_CHAM = 'REAC_NODA',
+                     TYPE_CHAM = 'NOEU_DEPL_R',
+                     RESULTAT = LAMBDAR,
+                     INST=0.,
+                     )
+    LAMBDA = CREA_CHAMP(OPERATION = 'ASSE',
+                        TYPE_CHAM = 'NOEU_DEPL_R',
+                        MODELE = modL,
+                        ASSE = _F(CHAM_GD = tmp,GROUP_MA = 'Wd'),
+                       ) 
+                       
+    LAMBDAG=PROJ_CHAMP(RESULTAT=LAMBDAR, MODELE_1=modL,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+                       VIS_A_VIS=_F(GROUP_MA_1='Wd',GROUP_MA_2='Front', CAS_FIGURE='1.5D'))                                  
+
+    LAMBDACH = CREA_CHAMP(OPERATION = 'EXTR',
+                          NOM_CHAM = 'REAC_NODA',
+                          TYPE_CHAM = 'NOEU_DEPL_R',
+                          RESULTAT = LAMBDAG,
+                          INST=0.,
+                          )           
+
+    DETRUIRE(CONCEPT=_F(NOM=tmp))
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDA))
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDAR))
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDAG))
+    ####################################################################################################
+    # Extraction KA*UG
+    ####################################################################################################
+    DETRUIRE(CONCEPT=_F(NOM=KAUG))
+    total0 = CREA_CHAMP(OPERATION='COMB',
+	    	        TYPE_CHAM='NOEU_DEPL_R',
+		        COMB=(_F(CHAM_GD=total,COEF_R=1.),
+		    	      )
+		       )
+    
+
+#    print("on est à KAUG")
+    UGR = CALC_CHAMP(FORCE = 'REAC_NODA',
+                     reuse = UGR,
+                     MODELE=modG,
+                     CHAM_MATER=MatG,
+                     #EXCIT=_F(CHARGE=totalG,),
+                     TOUT='OUI',
+                     #PRECISION=1.0E-14,
+                     #GROUP_MA='Auxi',
+                     RESULTAT = UGR,
+                    )
+
+    #KAUG1=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+    #                   VIS_A_VIS=_F(GROUP_MA_1='Auxi',TOUT_2='OUI', CAS_FIGURE='2D'))   
+                       
+                       
+    KAUG = CREA_CHAMP(OPERATION = 'EXTR',
+                          NOM_CHAM = 'REAC_NODA',
+                          TYPE_CHAM = 'NOEU_DEPL_R',
+                          RESULTAT = UGR,
+                          INST=0.,
+                          )  
+    #DETRUIRE(CONCEPT=_F(NOM=KAUG1))                                        
+    #KAUG = CREA_CHAMP(OPERATION = 'EXTR',
+    #                            NOM_CHAM = 'REAC_NODA',
+    #                            TYPE_CHAM = 'NOEU_DEPL_R',
+    #                            RESULTAT = UGR,
+    #                            INST=0.
+    #                            )    
+    #KAUG2 = PROD_MATR_CHAM(MATR_ASSE=matAssA,CHAM_NO=UG)
+    #KAUGG=PROJ_CHAMP(CHAM_GD=KAUG2, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',
+    #                 VIS_A_VIS=_F(TOUT_1='OUI',TOUT_2='OUI', CAS_FIGURE='2D'))   
+                     
+    #KAUG2R =CREA_RESU(OPERATION = 'AFFE',
+    #                   TYPE_RESU = 'EVOL_ELAS',
+    #                   NOM_CHAM = 'DEPL',
+    #                   AFFE = _F(CHAM_GD = KAUG2,
+    #                             MODELE = modA,
+    #                             CHAM_MATER = MatA,
+    #                             INST = 0.,)
+    #                  )     
+    #KAUG2G=PROJ_CHAMP(RESULTAT=KAUG2R, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+    #                   VIS_A_VIS=_F(TOUT_1='OUI',TOUT_2='OUI', CAS_FIGURE='2D'))                                
+    #KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
+    #                      NOM_CHAM = 'DEPL',
+    #                      TYPE_CHAM = 'NOEU_DEPL_R',
+    #                      RESULTAT = KAUG2G,
+    #                      INST=0.,
+    #                      )   
+    #DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G))  )                                   
+
+    #print(KAUG2C.EXTR_COMP().valeurs)
+    
+    DETRUIRE(CONCEPT=_F(NOM=total))  
+    total = CREA_CHAMP(OPERATION='COMB',
+	    	        TYPE_CHAM='NOEU_DEPL_R',
+		        COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
+		              _F(CHAM_GD=LAMBDACH,COEF_R=-1.),
+		    	      _F(CHAM_GD=vneumG,COEF_R=1.)
+		    	      )
+		       )
+    #DETRUIRE(CONCEPT=_F(NOM=KAUGG))
+    DETRUIRE(CONCEPT=(_F(NOM=totalG)))	       
+    totalG = AFFE_CHAR_MECA(MODELE = modG,	
+		        CHAMNO_IMPO = _F(CHAM_NO = total,
+		  	     		COEF_IMPO = 1.,)
+		        )	 
+    #vecElemT = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=totalG,CHAM_MATER=MatG)
+    #vneumT = ASSE_VECTEUR(VECT_ELEM=vecElemT,NUME_DDL=numDDLG)   	              
+    R = CREA_CHAMP(OPERATION='COMB',TYPE_CHAM='NOEU_DEPL_R',
+                   COMB=(_F(CHAM_GD=total,COEF_R=1.),_F(CHAM_GD=total0,COEF_R=-1.))
+                   )
+    r = R.EXTR_COMP().valeurs
+    normr.append(np.linalg.norm(r))
+    DETRUIRE(CONCEPT=(_F(NOM=R),_F(NOM=total0)))
+    #DETRUIRE(CONCEPT=(_F(NOM=KAUG2),_F(NOM=KAUG2C)))
+  #  DETRUIRE(CONCEPT=_F(NOM=toto))
+  #  DETRUIRE(CONCEPT=_F(NOM=nodalrea))
+    ####################################################################################################
+    # Calcul de convergence
+    ####################################################################################################
+    # ....
+ 
+########################################################################################################
+# RESULTATS
+########################################################################################################    
+np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/normr.npy',normr)
+print("NORME RESIDU ABSOLU: ",normr)    
+print("NORME RESIDU RELATIF: ",normr/normr[0])    
+# Création du concept de résultat
+ResG = CREA_RESU(OPERATION = 'AFFE',
+		 TYPE_RESU = 'EVOL_ELAS',
+		 NOM_CHAM = 'DEPL',
+		 AFFE = _F(CHAM_GD = UG,
+		           MODELE = modG,
+		           CHAM_MATER = MatG,
+		           INST = 0.
+		           )
+		)
+
+# Calcul des champs de réactions nodales
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         FORCE = 'REAC_NODA',
+	         TOUT = 'OUI',
+	         )
+		        
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         DEFORMATION = 'EPME_NOEU',
+	         TOUT = 'OUI',
+	         ) 
+	    
+"""  
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         CONTRAINTE = 'SIEF_ELGA',
+	         TOUT = 'OUI',
+	         )  
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         CONTRAINTE = 'EFGE_ELNO',
+	         TOUT = 'OUI',
+	         )  
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         CONTRAINTE = 'EFGE_NOEU',
+	         TOUT = 'OUI',
+	         )  	        	         
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         CRITERES = ('SIEQ_ELNO','SIEQ_NOEU'),
+	         TOUT = 'OUI',
+	         )  
+"""	             
+# Sauvegarde au format med
+IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=ResG))
+   
+# Création du concept de résultat
+ResL = CREA_RESU(OPERATION = 'AFFE',
+		 TYPE_RESU = 'EVOL_ELAS',
+		 NOM_CHAM = 'DEPL',
+		 AFFE = _F(CHAM_GD = UL,
+		           MODELE = modL,
+		           CHAM_MATER = matL,
+		           INST = 0.
+		           )
+		)
+
+# Calcul des champs de réactions nodales
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         FORCE = 'REAC_NODA',
+	         TOUT = 'OUI',
+	         )
+"""	        
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         DEFORMATION = 'EPME_NOEU',
+	         TOUT = 'OUI',
+	         )
+	         
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         CONTRAINTE = 'EFGE_ELNO',
+	         TOUT = 'OUI',
+	         )
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         CONTRAINTE = 'EFGE_NOEU',
+	         TOUT = 'OUI',
+	         )		        
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         CRITERES = ('SIEQ_ELNO','SIEQ_NOEU'),
+	         TOUT = 'OUI',
+	         )  
+"""	             		         
+# Sauvegarde au format med
+IMPR_RESU(FORMAT = 'MED',UNITE=81,RESU=_F(RESULTAT=ResL))
+
+    
+    #LAM = RESOUDRE(MATR=KL,)
+    #Ka = la.compute_nodal_reaction_from_field_on_group(UG,G,mat) 
+    #FGG = FG -LAMB + Ka
+    #vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
+    
+    #vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
+
+    #sol = RESOUDRE(MATR=KG, CHAM_NO=vneum, CHAM_CINE=vcine,)
+    ### GLOBAL
+    #FGG = FG #- ...
+    #UG=KGLU.solve(FGG)
+    #FG=F - CG.T.dot(LAM) + KG.dot(UGold)
+    #UG[rep]=IGALU.solve(FG[rep])
+
+       # err=np.r_[err,np.linalg.norm(UG-UGold)/np.linalg.norm(UG)]
+
+    ### LOCAL
+    #FL=np.zeros(mf.ndof+ndof_interf)
+    #FL[mf.ndof:]=-CG.dot(UG)
+    #UL=EFLU.solve(FL)
+    #LAM=UL[mf.ndof:]
+    #print(np.linalg.norm(UL[:mf.ndof]))
+    #mf.VTKSol('marie_loc',UL[:mf.ndof])
+    #UGold=UG.copy()
+
+FIN();
+
+# ------------------------------------------------------------------------------------------
+
+  Ouverture en écriture du fichier ./vola.1
+
+ <INFO> Démarrage de l'exécution.
+                                                                                
+                                                                                
+        -- CODE_ASTER -- VERSION : DÉVELOPPEMENT STABILISÉE (testing) --        
+                                                                                
+                     Version 14.4.0 modifiée le 28/06/2019                      
+                   révision 9aa55c3f2e9e - branche 'default'                    
+                         Copyright EDF R&D 1991 - 2020                          
+                                                                                
+                    Exécution du : Sun Dec 20 12:00:48 2020                     
+                      Nom de la machine : treillou-X455LJ                       
+                              Architecture : 64bit                              
+                          Type de processeur : x86_64                           
+Système d'exploitation : Linux-5.4.0-58-generic-x86_64-with-debian-bullseye-sid 
+                        Langue des messages : fr (UTF-8)                        
+                                                                                
+                           Version de Python : 3.6.12                           
+                           Version de NumPy : 1.19.4                            
+                           Parallélisme MPI : inactif                           
+                          Parallélisme OpenMP : actif                           
+                        Nombre de processus utilisés : 2                        
+                     Version de la librairie HDF5 : 1.10.3                      
+                      Version de la librairie MED : 4.0.0                       
+                       Librairie MFront : non disponible                        
+                     Version de la librairie MUMPS : 5.1.2                      
+                        Librairie PETSc : non disponible                        
+                     Version de la librairie SCOTCH : 6.0.4                     
+
+                  Mémoire limite pour l'exécution : 512.00 Mo                   
+                   consommée par l'initialisation : 232.55 Mo                   
+                  par les objets du jeu de commandes : 0.00 Mo                  
+                 reste pour l'allocation dynamique : 172.65 Mo                  
+                Taille limite des fichiers d'échange : 48.00 Go                 
+                                                                                
+
+.. __stg1_txt19
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0001            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DEBUT(PAR_LOT='NON',
+        IMPR_MACRO='NON',
+        DEBUG=_F(JXVERI='NON',
+                 SDVERI='NON',
+                 JEVEUX='NON',
+                 HIST_ETAPE='NON',),
+        MESURE_TEMPS=_F(NIVE_DETAIL=1,
+                        MOYENNE='NON',),
+        MEMOIRE=_F(TAILLE_BLOC=800.0,
+                   TAILLE_GROUP_ELEM=1000,),
+        RESERVE_CPU=_F(BORNE=900,),
+        INFO=1,)
+
+   
+   !------------------------------------------------------------------------------------!
+   ! <A> <SUPERVIS_1>                                                                   !
+   !                                                                                    !
+   !  L'utilisation du mot-clé PAR_LOT='NON' permet d'accéder en lecture et en écriture !
+   !  au contenu des concepts Aster. De ce fait, votre étude est exclue du périmètre    !
+   !  qualifié de Code_Aster puisque toutes ses étapes ne peuvent être certifiées.      !
+   !                                                                                    !
+   !  Conseils :                                                                        !
+   !    - Il n'y a pas particulièrement de risque de résultat faux... sauf si votre     !
+   !      programmation l'introduit.                                                    !
+   !    - Distinguez le calcul lui-même (qui doit sans doute passer en PAR_LOT='OUI')   !
+   !      des post-traitements (qui nécessiteraient le mode PAR_LOT='NON') qui peuvent  !
+   !      être réalisés en POURSUITE.                                                   !
+   !                                                                                    !
+   !                                                                                    !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                     !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                             !
+   !------------------------------------------------------------------------------------!
+   
+
+  Valeur initiale du temps CPU maximum =   900 secondes
+  Valeur du temps CPU maximum passé aux commandes =   810 secondes
+  Réserve CPU prévue = 90 secondes
+
+  Ouverture en écriture du fichier ./glob.1
+
+  Ouverture en écriture du fichier ./vola.1
+
+  Ouverture en lecture du fichier /home/treillou/dir-code-aster/aster-14.4.0/14.4/lib/aster/elem.1
+
+     Nom de la base                          :  ELEMBASE
+     Créée avec la version                   :  14.04.00
+     Nombre d'enregistrements utilisés       :  43
+     Nombre d'enregistrements maximum        :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+
+  Ouverture en lecture du fichier /home/treillou/dir-code-aster/aster-14.4.0/14.4/lib/aster/elem.1
+
+
+     Nom de la base                          :  ELEMBASE
+     Nombre d'enregistrements utilisés       :  43
+     Nombre d'enregistrements maximum        :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre total d'accès en lecture         :  60
+     Volume des accès en lecture             :         46.88 Mo.
+     Nombre total d'accès en écriture        :  0
+     Volume des accès en écriture            :          0.00 Mo.
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+
+  Relecture des catalogues des éléments faite.
+
+  Fin de lecture (durée  0.047844  s.) 
+  # Mémoire (Mo) :   383.94 /   376.19 /    44.30 /    22.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0001   user+syst:        0.07s (syst:        0.04s, elaps:        0.07s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt45
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0002            Concept de type : maillage_sdaster
+  # ------------------------------------------------------------------------------------------
+  asMeshG = LIRE_MAILLAGE(FORMAT='MED',
+                          INFO=1,
+                          UNITE=20,
+                          NOM_MED='global',
+                          INFO_MED=1,
+                          VERI_MAIL=_F(VERIF='OUI',
+                                       APLAT=1.E-3,),
+                          )
+
+Vérification du maillage.
+
+------------ MAILLAGE asMeshG  - IMPRESSIONS NIVEAU  1 ------------
+
+DI-20-DECE-2020 12:00:48                                                        
+
+NOMBRE DE NOEUDS                           8
+
+NOMBRE DE MAILLES                         13
+                              SEG2                   10
+                              QUAD4                   3
+
+NOMBRE DE GROUPES DE MAILLES               5
+                              Fd                                   1
+                              Front                                4
+                              Wd                                   1
+                              Compl                                2
+                              Auxi                                 1
+
+--------------------------------------------------------------------------------
+
+  # Mémoire (Mo) :   383.94 /   377.51 /    44.30 /    22.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0002   user+syst:        0.02s (syst:        0.00s, elaps:        0.03s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt57
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0004            Concept de type : modele_sdaster
+  # ------------------------------------------------------------------------------------------
+  modG = AFFE_MODELE(MAILLAGE=asMeshG,
+                     AFFE=_F(TOUT='OUI',
+                             PHENOMENE='MECANIQUE',
+                             MODELISATION=('C_PLAN', ),),
+                     INFO=1,
+                     DISTRIBUTION=_F(PARTITIONNEUR='METIS',
+                                     METHODE='SOUS_DOMAINE',),
+                     VERI_JACOBIEN='OUI',)
+
+
+Sur les 13 mailles du maillage asMeshG, on a demandé l'affectation de 13, on a pu en affecter 13
+ Modélisation     Type maille  Élément fini     Nombre
+ C_PLAN           QUAD4        MECPQU4          3
+                  SEG2         MEPLSE2          10
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0004   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt64
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0005            Concept de type : mater_sdaster
+  # ------------------------------------------------------------------------------------------
+  matG = DEFI_MATERIAU(ELAS=_F(E=1.E5,
+                               NU=0.3,
+                               COEF_AMOR=1.0,),
+                       INFO=1,)
+
+Propriétés définies dans le matériau: ELAS.
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0005   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt71
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0006            Concept de type : cham_mater
+  # ------------------------------------------------------------------------------------------
+  MatG = AFFE_MATERIAU(MAILLAGE=asMeshG,
+                       AFFE=_F(TOUT='OUI',
+                               MATER=(matG, ),),
+                       INFO=1,)
+
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0006   user+syst:        0.02s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt81
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0007            Concept de type : char_cine_meca
+  # ------------------------------------------------------------------------------------------
+  FixG = AFFE_CHAR_CINE(MODELE=modG,
+                        MECA_IMPO=_F(GROUP_MA=('Wd', ),
+                                     DX=0.0,
+                                     DY=0.0,),
+                        INFO=1,)
+
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0007   user+syst:        0.01s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt87
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0008            Concept de type : char_meca
+  # ------------------------------------------------------------------------------------------
+  FdG = AFFE_CHAR_MECA(MODELE=modG,
+                       FORCE_CONTOUR=_F(GROUP_MA=('Fd', ),
+                                        FX=5.0,
+                                        FY=0.0,),
+                       VERI_NORM='OUI',
+                       DOUBLE_LAGRANGE='OUI',
+                       INFO=1,)
+
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0008   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt93
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0009            Concept de type : matr_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  matElemG = CALC_MATR_ELEM(OPTION='RIGI_MECA',
+                            MODELE=modG,
+                            CHAM_MATER=MatG,
+                            MODE_FOURIER=0,
+                            CALC_ELEM_MODELE='OUI',
+                            INST=0.0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0009   user+syst:        0.01s (syst:        0.01s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt96
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0010            Concept de type : nume_ddl_sdaster
+  # ------------------------------------------------------------------------------------------
+  numDDLG = NUME_DDL(MATR_RIGI=(matElemG, ),)
+
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   411.03 /   411.03 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0010   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt99
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0011            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAssG = ASSE_MATRICE(MATR_ELEM=matElemG,
+                         NUME_DDL=numDDLG,
+                         CHAR_CINE=FixG,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE M        :  0.0000D+00 0.0000D+00 0.1459D-03
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   414.41 /   414.41 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0011   user+syst:        0.01s (syst:        0.01s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt102
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0012            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vcineG = CALC_CHAR_CINE(NUME_DDL=numDDLG,
+                          CHAR_CINE=(FixG, ),
+                          INST=0.0,
+                          INFO=1,)
+
+  # Mémoire (Mo) :   414.41 /   414.41 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0012   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt105
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0013            Concept de type : vect_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  vecElemG = CALC_VECT_ELEM(OPTION='CHAR_MECA',
+                            CHARGE=(FdG, ),
+                            CHAM_MATER=MatG,
+                            INST=0.0,
+                            MODE_FOURIER=0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   414.41 /   414.41 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0013   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt106
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0014            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vneumG = ASSE_VECTEUR(VECT_ELEM=(vecElemG, ),
+                        NUME_DDL=numDDLG,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE V        :  0.0000D+00 0.0000D+00 0.7582D-04
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   414.41 /   414.41 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0014   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt110
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0015            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAssG = FACTORISER(reuse=matAssG,
+                       MATR_ASSE=matAssG,
+                       METHODE='MUMPS',
+                       RENUM='AUTO',
+                       STOP_SINGULIER='OUI',
+                       NPREC=8,
+                       TYPE_RESOL='AUTO',
+                       PRETRAITEMENTS='AUTO',
+                       PCENT_PIVOT=20,
+                       ELIM_LAGR='LAGR2',
+                       GESTION_MEMOIRE='IN_CORE',
+                       ACCELERATION='AUTO',
+                       LOW_RANK_SEUIL=0.0,)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   1          16             64
+      executing #MPI =      1 and #OMP =      2
+
+ =================================================
+ MUMPS compiled with option -Dmetis
+ MUMPS compiled with option -Dscotch
+ =================================================
+L D L^T Solver for general symmetric matrices
+Type of parallelism: Working host
+
+ ****** ANALYSIS STEP ********
+
+ Resetting candidate strategy to 0 because NSLAVES=1
+ 
+
+****** Preprocessing of original matrix 
+
+ Scaling will be computed during analysis
+Compute maximum matching (Maximum Transversal):  5
+ ... JOB =  5: MAXIMIZE PRODUCT DIAGONAL AND SCALE
+ ... Column permutation not used
+ Average density of rows/columns =    6
+ Ordering based on AMF 
+
+Leaving analysis phase with  ...
+INFOG(1)                                       =               0
+INFOG(2)                                       =               0
+ -- (20) Number of entries in factors (estim.) =              66
+ --  (3) Storage of factors  (REAL, estimated) =             100
+ --  (4) Storage of factors  (INT , estimated) =             142
+ --  (5) Maximum frontal size      (estimated) =               8
+ --  (6) Number of nodes in the tree           =               6
+ -- (32) Type of analysis effectively used     =               1
+ --  (7) Ordering option effectively used      =               2
+ICNTL(6) Maximum transversal option            =               0
+ICNTL(7) Pivot order option                    =               7
+Percentage of memory relaxation (effective)    =              20
+Number of level 2 nodes                        =               0
+Number of split nodes                          =               0
+RINFOG(1) Operations during elimination (estim)=   3.660D+02
+ ** Rank of proc needing largest memory in IC facto        :               0
+ ** Estimated corresponding MBYTES for IC facto            :               1
+ ** Estimated avg. MBYTES per work. proc at facto (IC)     :               1
+ ** TOTAL     space in MBYTES for IC factorization         :               1
+ ** Rank of proc needing largest memory for OOC facto      :               0
+ ** Estimated corresponding MBYTES for OOC facto           :               1
+ ** Estimated avg. MBYTES per work. proc at facto (OOC)    :               1
+ ** TOTAL     space in MBYTES for OOC factorization        :               1
+ ELAPSED TIME IN ANALYSIS DRIVER=       0.0004
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   2          16             64
+      executing #MPI =      1 and #OMP =      2
+
+
+ ****** FACTORIZATION STEP ********
+
+
+ GLOBAL STATISTICS PRIOR NUMERICAL FACTORIZATION ...
+ NUMBER OF WORKING PROCESSES              =               1
+ OUT-OF-CORE OPTION (ICNTL(22))           =               0
+ REAL SPACE FOR FACTORS                   =             100
+ INTEGER SPACE FOR FACTORS                =             142
+ MAXIMUM FRONTAL SIZE (ESTIMATED)         =               8
+ NUMBER OF NODES IN THE TREE              =               6
+ MEMORY ALLOWED (MB -- 0: N/A )           =               0
+ RELATIVE THRESHOLD FOR PIVOTING, CNTL(1) =      0.1000D-01
+  ZERO PIVOT DETECTION ON, THRESHOLD          =   1.0000000000000008E-008
+  FIXATION FOR NULL PIVOTS                    =   2921771.2828909317     
+ Maximum effective relaxed size of S              =             436
+ Average effective relaxed size of S              =             436
+ ELAPSED TIME FOR MATRIX DISTRIBUTION      =      0.0000
+ ** Memory relaxation parameter ( ICNTL(14)  )            :        20
+ ** Rank of processor needing largest memory in facto     :         0
+ ** Space in MBYTES used by this processor for facto      :         1
+ ** Avg. Space in MBYTES per working proc during facto    :         1
+
+ ELAPSED TIME FOR FACTORIZATION           =      0.0002
+ Maximum effective space used in S     (KEEP8(67))              100
+ Average effective space used in S     (KEEP8(67))              100
+ ** EFF Min: Rank of processor needing largest memory :         0
+ ** EFF Min: Space in MBYTES used by this processor   :         1
+ ** EFF Min: Avg. Space in MBYTES per working proc    :         1
+
+ GLOBAL STATISTICS 
+ RINFOG(2)  OPERATIONS IN NODE ASSEMBLY   = 1.000D+01
+ ------(3)  OPERATIONS IN NODE ELIMINATION= 3.660D+02
+ INFOG (9)  REAL SPACE FOR FACTORS        =             100
+ INFOG(10)  INTEGER SPACE FOR FACTORS     =             142
+ INFOG(11)  MAXIMUM FRONT SIZE            =               8
+ INFOG(29)  NUMBER OF ENTRIES IN FACTORS  =              66
+ INFOG(12)  NUMBER OF NEGATIVE PIVOTS     =               0
+ INFOG(13)  NUMBER OF DELAYED PIVOTS      =               0
+ NUMBER OF 2x2 PIVOTS in type 1 nodes     =               0
+ NUMBER OF 2x2 PIVOTS in type 2 nodes     =               0
+ NB OF NULL PIVOTS DETECTED BY ICNTL(24)  =               0
+ INFOG(28)  ESTIMATED DEFICIENCY          =               0
+ INFOG(14)  NUMBER OF MEMORY COMPRESS     =               0
+ ELAPSED TIME IN FACTORIZATION DRIVER=       0.0005
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   414.68 /   414.41 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0015   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt127
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0016            Concept de type : maillage_sdaster
+  # ------------------------------------------------------------------------------------------
+  asMeshL = LIRE_MAILLAGE(FORMAT='MED',
+                          INFO=1,
+                          UNITE=21,
+                          NOM_MED='local',
+                          INFO_MED=1,
+                          VERI_MAIL=_F(VERIF='OUI',
+                                       APLAT=1.E-3,),
+                          )
+
+Vérification du maillage.
+
+------------ MAILLAGE asMeshL  - IMPRESSIONS NIVEAU  1 ------------
+
+DI-20-DECE-2020 12:00:48                                                        
+
+NOMBRE DE NOEUDS                           4
+
+NOMBRE DE MAILLES                          5
+                              SEG2                    4
+                              QUAD4                   1
+
+NOMBRE DE GROUPES DE MAILLES               1
+                              Wd                                   4
+
+--------------------------------------------------------------------------------
+
+  # Mémoire (Mo) :   415.16 /   414.66 /    44.30 /    33.92 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0016   user+syst:        0.02s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt138
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0018            Concept de type : modele_sdaster
+  # ------------------------------------------------------------------------------------------
+  modL = AFFE_MODELE(MAILLAGE=asMeshL,
+                     AFFE=_F(TOUT='OUI',
+                             PHENOMENE='MECANIQUE',
+                             MODELISATION=('C_PLAN', ),),
+                     INFO=1,
+                     DISTRIBUTION=_F(PARTITIONNEUR='METIS',
+                                     METHODE='SOUS_DOMAINE',),
+                     VERI_JACOBIEN='OUI',)
+
+
+Sur les 5 mailles du maillage asMeshL, on a demandé l'affectation de 5, on a pu en affecter 5
+ Modélisation     Type maille  Élément fini     Nombre
+ C_PLAN           QUAD4        MECPQU4          1
+                  SEG2         MEPLSE2          4
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0018   user+syst:        0.01s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt145
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0019            Concept de type : mater_sdaster
+  # ------------------------------------------------------------------------------------------
+  matL = DEFI_MATERIAU(ELAS=_F(E=1.E5,
+                               NU=0.3,
+                               COEF_AMOR=1.0,),
+                       INFO=1,)
+
+Propriétés définies dans le matériau: ELAS.
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0019   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt152
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0020            Concept de type : cham_mater
+  # ------------------------------------------------------------------------------------------
+  MatL = AFFE_MATERIAU(MAILLAGE=asMeshL,
+                       AFFE=_F(TOUT='OUI',
+                               MATER=(matL, ),),
+                       INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0020   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt159
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0021            Concept de type : char_meca
+  # ------------------------------------------------------------------------------------------
+  FdL = AFFE_CHAR_MECA(MODELE=modL,
+                       FORCE_CONTOUR=_F(GROUP_MA=('Wd', ),
+                                        FX=0.0,
+                                        FY=0.0,),
+                       VERI_NORM='OUI',
+                       DOUBLE_LAGRANGE='OUI',
+                       INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0021   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt164
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0022            Concept de type : char_cine_meca
+  # ------------------------------------------------------------------------------------------
+  blank = AFFE_CHAR_CINE(MODELE=modL,
+                         MECA_IMPO=_F(GROUP_MA=('Wd', ),
+                                      DX=0.0,
+                                      DY=0.0,),
+                         INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0022   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt168
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0023            Concept de type : matr_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  matElemL = CALC_MATR_ELEM(OPTION='RIGI_MECA',
+                            MODELE=modL,
+                            CHAM_MATER=MatL,
+                            MODE_FOURIER=0,
+                            CALC_ELEM_MODELE='OUI',
+                            INST=0.0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0023   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt171
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0024            Concept de type : nume_ddl_sdaster
+  # ------------------------------------------------------------------------------------------
+  numDDLL = NUME_DDL(MATR_RIGI=(matElemL, ),)
+
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0024   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt173
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0025            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAssL = ASSE_MATRICE(MATR_ELEM=matElemL,
+                         NUME_DDL=numDDLL,
+                         CHAR_CINE=blank,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE M        :  0.0000D+00 0.0000D+00 0.1540D-03
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0025   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt175
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0026            Concept de type : vect_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  vecElemL = CALC_VECT_ELEM(OPTION='CHAR_MECA',
+                            CHARGE=(FdL, ),
+                            CHAM_MATER=MatL,
+                            INST=0.0,
+                            MODE_FOURIER=0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.01      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0026   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt176
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0027            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vneumL = ASSE_VECTEUR(VECT_ELEM=(vecElemL, ),
+                        NUME_DDL=numDDLL,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE V        :  0.0000D+00 0.0000D+00 0.4697D-04
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0027   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt179
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0028            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vblank = CALC_CHAR_CINE(NUME_DDL=numDDLL,
+                          CHAR_CINE=(blank, ),
+                          INST=0.0,
+                          INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0028   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt183
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0029            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAssL = FACTORISER(reuse=matAssL,
+                       MATR_ASSE=matAssL,
+                       METHODE='MUMPS',
+                       RENUM='AUTO',
+                       STOP_SINGULIER='OUI',
+                       NPREC=8,
+                       TYPE_RESOL='AUTO',
+                       PRETRAITEMENTS='AUTO',
+                       PCENT_PIVOT=20,
+                       ELIM_LAGR='LAGR2',
+                       GESTION_MEMOIRE='IN_CORE',
+                       ACCELERATION='AUTO',
+                       LOW_RANK_SEUIL=0.0,)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   1           8              8
+      executing #MPI =      1 and #OMP =      2
+
+ =================================================
+ MUMPS compiled with option -Dmetis
+ MUMPS compiled with option -Dscotch
+ =================================================
+L D L^T Solver for general symmetric matrices
+Type of parallelism: Working host
+
+ ****** ANALYSIS STEP ********
+
+ Resetting candidate strategy to 0 because NSLAVES=1
+ 
+
+****** Preprocessing of original matrix 
+
+ Scaling will be computed during analysis
+Compute maximum matching (Maximum Transversal):  5
+ ... JOB =  5: MAXIMIZE PRODUCT DIAGONAL AND SCALE
+ ... Column permutation not used
+ Average density of rows/columns =    0
+ Ordering based on AMF 
+
+Leaving analysis phase with  ...
+INFOG(1)                                       =               0
+INFOG(2)                                       =               0
+ -- (20) Number of entries in factors (estim.) =               8
+ --  (3) Storage of factors  (REAL, estimated) =               8
+ --  (4) Storage of factors  (INT , estimated) =             152
+ --  (5) Maximum frontal size      (estimated) =               1
+ --  (6) Number of nodes in the tree           =               8
+ -- (32) Type of analysis effectively used     =               1
+ --  (7) Ordering option effectively used      =               2
+ICNTL(6) Maximum transversal option            =               0
+ICNTL(7) Pivot order option                    =               7
+Percentage of memory relaxation (effective)    =              20
+Number of level 2 nodes                        =               0
+Number of split nodes                          =               0
+RINFOG(1) Operations during elimination (estim)=   0.000D+00
+ ** Rank of proc needing largest memory in IC facto        :               0
+ ** Estimated corresponding MBYTES for IC facto            :               1
+ ** Estimated avg. MBYTES per work. proc at facto (IC)     :               1
+ ** TOTAL     space in MBYTES for IC factorization         :               1
+ ** Rank of proc needing largest memory for OOC facto      :               0
+ ** Estimated corresponding MBYTES for OOC facto           :               1
+ ** Estimated avg. MBYTES per work. proc at facto (OOC)    :               1
+ ** TOTAL     space in MBYTES for OOC factorization        :               1
+ ELAPSED TIME IN ANALYSIS DRIVER=       0.0006
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   2           8              8
+      executing #MPI =      1 and #OMP =      2
+
+
+ ****** FACTORIZATION STEP ********
+
+
+ GLOBAL STATISTICS PRIOR NUMERICAL FACTORIZATION ...
+ NUMBER OF WORKING PROCESSES              =               1
+ OUT-OF-CORE OPTION (ICNTL(22))           =               0
+ REAL SPACE FOR FACTORS                   =               8
+ INTEGER SPACE FOR FACTORS                =             152
+ MAXIMUM FRONTAL SIZE (ESTIMATED)         =               1
+ NUMBER OF NODES IN THE TREE              =               8
+ MEMORY ALLOWED (MB -- 0: N/A )           =               0
+ RELATIVE THRESHOLD FOR PIVOTING, CNTL(1) =      0.1000D-01
+  ZERO PIVOT DETECTION ON, THRESHOLD          =   1.0000000000000008E-008
+  FIXATION FOR NULL PIVOTS                    =   1000000.0000000000     
+ Maximum effective relaxed size of S              =              60
+ Average effective relaxed size of S              =              60
+ ELAPSED TIME FOR MATRIX DISTRIBUTION      =      0.0000
+ ** Memory relaxation parameter ( ICNTL(14)  )            :        20
+ ** Rank of processor needing largest memory in facto     :         0
+ ** Space in MBYTES used by this processor for facto      :         1
+ ** Avg. Space in MBYTES per working proc during facto    :         1
+
+ ELAPSED TIME FOR FACTORIZATION           =      0.0002
+ Maximum effective space used in S     (KEEP8(67))                8
+ Average effective space used in S     (KEEP8(67))                8
+ ** EFF Min: Rank of processor needing largest memory :         0
+ ** EFF Min: Space in MBYTES used by this processor   :         1
+ ** EFF Min: Avg. Space in MBYTES per working proc    :         1
+
+ GLOBAL STATISTICS 
+ RINFOG(2)  OPERATIONS IN NODE ASSEMBLY   = 0.000D+00
+ ------(3)  OPERATIONS IN NODE ELIMINATION= 0.000D+00
+ INFOG (9)  REAL SPACE FOR FACTORS        =               8
+ INFOG(10)  INTEGER SPACE FOR FACTORS     =             152
+ INFOG(11)  MAXIMUM FRONT SIZE            =               1
+ INFOG(29)  NUMBER OF ENTRIES IN FACTORS  =               8
+ INFOG(12)  NUMBER OF NEGATIVE PIVOTS     =               0
+ INFOG(13)  NUMBER OF DELAYED PIVOTS      =               0
+ NUMBER OF 2x2 PIVOTS in type 1 nodes     =               0
+ NUMBER OF 2x2 PIVOTS in type 2 nodes     =               0
+ NB OF NULL PIVOTS DETECTED BY ICNTL(24)  =               0
+ INFOG(28)  ESTIMATED DEFICIENCY          =               0
+ INFOG(14)  NUMBER OF MEMORY COMPRESS     =               0
+ ELAPSED TIME IN FACTORIZATION DRIVER=       0.0006
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0029   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt41
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0030            Concept de type : modele_sdaster
+  # ------------------------------------------------------------------------------------------
+  modA = AFFE_MODELE(MAILLAGE=asMeshG,
+                     AFFE=_F(TOUT='OUI',
+                             PHENOMENE='MECANIQUE',
+                             MODELISATION=('C_PLAN', ),),
+                     INFO=1,
+                     DISTRIBUTION=_F(PARTITIONNEUR='METIS',
+                                     METHODE='SOUS_DOMAINE',),
+                     VERI_JACOBIEN='OUI',)
+
+
+Sur les 13 mailles du maillage asMeshG, on a demandé l'affectation de 13, on a pu en affecter 13
+ Modélisation     Type maille  Élément fini     Nombre
+ C_PLAN           QUAD4        MECPQU4          3
+                  SEG2         MEPLSE2          10
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.01      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0030   user+syst:        0.02s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt48
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0031            Concept de type : mater_sdaster
+  # ------------------------------------------------------------------------------------------
+  matA = DEFI_MATERIAU(ELAS=_F(E=1.E5,
+                               NU=0.3,
+                               COEF_AMOR=1.0,),
+                       INFO=1,)
+
+Propriétés définies dans le matériau: ELAS.
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0031   user+syst:        0.02s (syst:        0.01s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt55
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0032            Concept de type : cham_mater
+  # ------------------------------------------------------------------------------------------
+  MatA = AFFE_MATERIAU(MAILLAGE=asMeshG,
+                       AFFE=_F(TOUT='OUI',
+                               MATER=(matA, ),),
+                       INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0032   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt65
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0033            Concept de type : char_cine_meca
+  # ------------------------------------------------------------------------------------------
+  FixA = AFFE_CHAR_CINE(MODELE=modA,
+                        MECA_IMPO=_F(GROUP_MA=('Auxi', ),
+                                     DX=0.0,
+                                     DY=0.0,),
+                        INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0033   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt71
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0034            Concept de type : char_meca
+  # ------------------------------------------------------------------------------------------
+  FdA = AFFE_CHAR_MECA(MODELE=modA,
+                       FORCE_CONTOUR=_F(GROUP_MA=('Fd', ),
+                                        FX=0.0,
+                                        FY=0.0,),
+                       VERI_NORM='OUI',
+                       DOUBLE_LAGRANGE='OUI',
+                       INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0034   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt77
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0035            Concept de type : matr_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  matElemA = CALC_MATR_ELEM(OPTION='RIGI_MECA',
+                            MODELE=modA,
+                            CHAM_MATER=MatA,
+                            MODE_FOURIER=0,
+                            CALC_ELEM_MODELE='OUI',
+                            INST=0.0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0035   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt80
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0036            Concept de type : nume_ddl_sdaster
+  # ------------------------------------------------------------------------------------------
+  numDDLA = NUME_DDL(MATR_RIGI=(matElemA, ),)
+
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.01      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0036   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt83
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0037            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAssA = ASSE_MATRICE(MATR_ELEM=matElemA,
+                         NUME_DDL=numDDLA,
+                         CHAR_CINE=FixA,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE M        :  0.0000D+00 0.0000D+00 0.1271D-03
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0037   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt86
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0038            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vcineA = CALC_CHAR_CINE(NUME_DDL=numDDLA,
+                          CHAR_CINE=(FixA, ),
+                          INST=0.0,
+                          INFO=1,)
+
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0038   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt89
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0039            Concept de type : vect_elem_depl_r
+  # ------------------------------------------------------------------------------------------
+  vecElemA = CALC_VECT_ELEM(OPTION='CHAR_MECA',
+                            CHARGE=(FdA, ),
+                            CHAM_MATER=MatA,
+                            INST=0.0,
+                            MODE_FOURIER=0,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.01      0.01      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0039   user+syst:        0.01s (syst:        0.01s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt90
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0040            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vneumA = ASSE_VECTEUR(VECT_ELEM=(vecElemA, ),
+                        NUME_DDL=numDDLA,)
+
+TEMPS CPU/SYS/ELAPSED ASSEMBLAGE V        :  0.0000D+00 0.0000D+00 0.4816D-04
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0040   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt94
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0041            Concept de type : matr_asse_depl_r
+  # ------------------------------------------------------------------------------------------
+  matAssA = FACTORISER(reuse=matAssA,
+                       MATR_ASSE=matAssA,
+                       METHODE='MUMPS',
+                       RENUM='AUTO',
+                       STOP_SINGULIER='OUI',
+                       NPREC=8,
+                       TYPE_RESOL='AUTO',
+                       PRETRAITEMENTS='AUTO',
+                       PCENT_PIVOT=20,
+                       ELIM_LAGR='LAGR2',
+                       GESTION_MEMOIRE='IN_CORE',
+                       ACCELERATION='AUTO',
+                       LOW_RANK_SEUIL=0.0,)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   1          16             28
+      executing #MPI =      1 and #OMP =      2
+
+ =================================================
+ MUMPS compiled with option -Dmetis
+ MUMPS compiled with option -Dscotch
+ =================================================
+L D L^T Solver for general symmetric matrices
+Type of parallelism: Working host
+
+ ****** ANALYSIS STEP ********
+
+ Resetting candidate strategy to 0 because NSLAVES=1
+ 
+
+****** Preprocessing of original matrix 
+
+ Scaling will be computed during analysis
+Compute maximum matching (Maximum Transversal):  5
+ ... JOB =  5: MAXIMIZE PRODUCT DIAGONAL AND SCALE
+ ... Column permutation not used
+ Average density of rows/columns =    2
+ Ordering based on AMF 
+
+Leaving analysis phase with  ...
+INFOG(1)                                       =               0
+INFOG(2)                                       =               0
+ -- (20) Number of entries in factors (estim.) =              28
+ --  (3) Storage of factors  (REAL, estimated) =              40
+ --  (4) Storage of factors  (INT , estimated) =             202
+ --  (5) Maximum frontal size      (estimated) =               4
+ --  (6) Number of nodes in the tree           =              10
+ -- (32) Type of analysis effectively used     =               1
+ --  (7) Ordering option effectively used      =               2
+ICNTL(6) Maximum transversal option            =               0
+ICNTL(7) Pivot order option                    =               7
+Percentage of memory relaxation (effective)    =              20
+Number of level 2 nodes                        =               0
+Number of split nodes                          =               0
+RINFOG(1) Operations during elimination (estim)=   5.200D+01
+ ** Rank of proc needing largest memory in IC facto        :               0
+ ** Estimated corresponding MBYTES for IC facto            :               1
+ ** Estimated avg. MBYTES per work. proc at facto (IC)     :               1
+ ** TOTAL     space in MBYTES for IC factorization         :               1
+ ** Rank of proc needing largest memory for OOC facto      :               0
+ ** Estimated corresponding MBYTES for OOC facto           :               1
+ ** Estimated avg. MBYTES per work. proc at facto (OOC)    :               1
+ ** TOTAL     space in MBYTES for OOC factorization        :               1
+ ELAPSED TIME IN ANALYSIS DRIVER=       0.0006
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   2          16             28
+      executing #MPI =      1 and #OMP =      2
+
+
+ ****** FACTORIZATION STEP ********
+
+
+ GLOBAL STATISTICS PRIOR NUMERICAL FACTORIZATION ...
+ NUMBER OF WORKING PROCESSES              =               1
+ OUT-OF-CORE OPTION (ICNTL(22))           =               0
+ REAL SPACE FOR FACTORS                   =              40
+ INTEGER SPACE FOR FACTORS                =             202
+ MAXIMUM FRONTAL SIZE (ESTIMATED)         =               4
+ NUMBER OF NODES IN THE TREE              =              10
+ MEMORY ALLOWED (MB -- 0: N/A )           =               0
+ RELATIVE THRESHOLD FOR PIVOTING, CNTL(1) =      0.1000D-01
+  ZERO PIVOT DETECTION ON, THRESHOLD          =   1.0000000000000008E-008
+  FIXATION FOR NULL PIVOTS                    =   2000000.0000000000     
+ Maximum effective relaxed size of S              =             208
+ Average effective relaxed size of S              =             208
+ ELAPSED TIME FOR MATRIX DISTRIBUTION      =      0.0000
+ ** Memory relaxation parameter ( ICNTL(14)  )            :        20
+ ** Rank of processor needing largest memory in facto     :         0
+ ** Space in MBYTES used by this processor for facto      :         1
+ ** Avg. Space in MBYTES per working proc during facto    :         1
+
+ ELAPSED TIME FOR FACTORIZATION           =      0.0002
+ Maximum effective space used in S     (KEEP8(67))               40
+ Average effective space used in S     (KEEP8(67))               40
+ ** EFF Min: Rank of processor needing largest memory :         0
+ ** EFF Min: Space in MBYTES used by this processor   :         1
+ ** EFF Min: Avg. Space in MBYTES per working proc    :         1
+
+ GLOBAL STATISTICS 
+ RINFOG(2)  OPERATIONS IN NODE ASSEMBLY   = 0.000D+00
+ ------(3)  OPERATIONS IN NODE ELIMINATION= 5.200D+01
+ INFOG (9)  REAL SPACE FOR FACTORS        =              40
+ INFOG(10)  INTEGER SPACE FOR FACTORS     =             202
+ INFOG(11)  MAXIMUM FRONT SIZE            =               4
+ INFOG(29)  NUMBER OF ENTRIES IN FACTORS  =              28
+ INFOG(12)  NUMBER OF NEGATIVE PIVOTS     =               0
+ INFOG(13)  NUMBER OF DELAYED PIVOTS      =               0
+ NUMBER OF 2x2 PIVOTS in type 1 nodes     =               0
+ NUMBER OF 2x2 PIVOTS in type 2 nodes     =               0
+ NB OF NULL PIVOTS DETECTED BY ICNTL(24)  =               0
+ INFOG(28)  ESTIMATED DEFICIENCY          =               0
+ INFOG(14)  NUMBER OF MEMORY COMPRESS     =               0
+ ELAPSED TIME IN FACTORIZATION DRIVER=       0.0008
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   415.16 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0041   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt109
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0042            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  UG = RESOUDRE(MATR=matAssG,
+                CHAM_NO=vneumG,
+                CHAM_CINE=vcineG,
+                RESI_RELA=1.E-06,
+                POSTTRAITEMENTS='AUTO',
+                NMAX_ITER=0,
+                ALGORITHME='FGMRES',)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   3          16             64
+      executing #MPI =      1 and #OMP =      2
+
+
+
+ ****** SOLVE & CHECK STEP ********
+
+
+ STATISTICS PRIOR SOLVE PHASE     ...........
+ NUMBER OF RIGHT-HAND-SIDES                    =           1
+ BLOCKING FACTOR FOR MULTIPLE RHS              =           1
+ ICNTL (9)                                     =           1
+  --- (10)                                     =           4
+  --- (11)                                     =           1
+  --- (20)                                     =           0
+  --- (21)                                     =           0
+  --- (30)                                     =           0
+
+
+ BEGIN ITERATIVE REFINEMENT
+                  MAXIMUM NUMBER OF STEPS =   4
+
+
+ ERROR ANALYSIS BEFORE ITERATIVE REFINEMENT
+
+ RESIDUAL IS ............ (MAX-NORM)        = 3.78D-15
+                       .. (2-NORM)          = 5.56D-15
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 2.58D+05
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 1.48D-04
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 9.87D-17
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 1.84D-16
+ ------(8):---------------------------- (W2)= 0.00D+00
+
+ STATISTICS AFTER ITERATIVE REFINEMENT 
+
+ NUMBER OF STEPS OF ITERATIVE REFINEMENTS PERFORMED     0
+
+ RESIDUAL IS ............ (MAX-NORM)        = 3.78D-15
+                       .. (2-NORM)          = 5.56D-15
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 2.58D+05
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 1.48D-04
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 9.87D-17
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 1.84D-16
+ ------(8):---------------------------- (W2)= 0.00D+00
+ ------(9):Upper bound ERROR ...............= 3.64D-14
+ -----(10):CONDITION NUMBER (1) ............= 1.98D+02
+ -----(11):CONDITION NUMBER (2) ............= 1.00D+00
+
+ END   ITERATIVE REFINEMENT 
+ ** Rank of processor needing largest memory in solve     :         0
+ ** Space in MBYTES used by this processor for solve      :         0
+ ** Avg. Space in MBYTES per working proc during solve    :         0
+
+ Global statistics
+ TIME to build/scatter RHS        =       0.000067
+ TIME in solution step (fwd/bwd)  =       0.000082
+  .. TIME in forward (fwd) step   =          0.000057
+  .. TIME in backward (bwd) step  =          0.000020
+ TIME to gather solution(cent.sol)=       0.000003
+ TIME to copy/scale RHS (dist.sol)=       0.000000
+ ELAPSED TIME IN SOLVE DRIVER=       0.0023
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.08 /   414.79 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0042   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt121
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0043            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  UGR = CREA_RESU(OPERATION='AFFE',
+                  TYPE_RESU='EVOL_ELAS',
+                  AFFE=_F(CHAM_GD=UG,
+                          MODELE=modG,
+                          CHAM_MATER=MatG,
+                          INST=(0.0, ),
+                          PRECISION=0.0,
+                          CRITERE='RELATIF',),
+                  NOM_CHAM='DEPL',
+                  )
+
+  # Mémoire (Mo) :   417.08 /   415.04 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0043   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt128
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0044            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  UIMP = PROJ_CHAMP(RESULTAT=UGR,
+                    METHODE='COLLOCATION',
+                    MODELE_1=modG,
+                    MODELE_2=modL,
+                    VIS_A_VIS=_F(GROUP_MA_1=('Front', ),
+                                 GROUP_MA_2=('Wd', ),
+                                 CAS_FIGURE='1.5D',),
+                    ALARME='OUI',
+                    PROL_ZERO='NON',
+                    PROJECTION='OUI',
+                    INFO=1,)
+
+  # Mémoire (Mo) :   417.08 /   415.17 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0044   user+syst:        0.02s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt133
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0045            Concept de type : char_cine_meca
+  # ------------------------------------------------------------------------------------------
+  UGL = AFFE_CHAR_CINE(MODELE=modL,
+                       EVOL_IMPO=UIMP,
+                       INFO=1,)
+
+  # Mémoire (Mo) :   417.08 /   415.17 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0045   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt134
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0046            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vciL = CALC_CHAR_CINE(NUME_DDL=numDDLL,
+                        CHAR_CINE=(UGL, ),
+                        INST=0.0,
+                        INFO=1,)
+
+  # Mémoire (Mo) :   417.08 /   415.17 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0046   user+syst:        0.02s (syst:        0.01s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt145
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0047            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  UL = RESOUDRE(MATR=matAssL,
+                CHAM_NO=vneumL,
+                CHAM_CINE=vciL,
+                RESI_RELA=1.E-06,
+                POSTTRAITEMENTS='AUTO',
+                NMAX_ITER=0,
+                ALGORITHME='FGMRES',)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   3           8              8
+      executing #MPI =      1 and #OMP =      2
+
+
+
+ ****** SOLVE & CHECK STEP ********
+
+
+ STATISTICS PRIOR SOLVE PHASE     ...........
+ NUMBER OF RIGHT-HAND-SIDES                    =           1
+ BLOCKING FACTOR FOR MULTIPLE RHS              =           1
+ ICNTL (9)                                     =           1
+  --- (10)                                     =           4
+  --- (11)                                     =           1
+  --- (20)                                     =           0
+  --- (21)                                     =           0
+  --- (30)                                     =           0
+
+
+ BEGIN ITERATIVE REFINEMENT
+                  MAXIMUM NUMBER OF STEPS =   4
+
+
+ ERROR ANALYSIS BEFORE ITERATIVE REFINEMENT
+
+ RESIDUAL IS ............ (MAX-NORM)        = 0.00D+00
+                       .. (2-NORM)          = 0.00D+00
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 1.00D+00
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 9.85D-05
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 0.00D+00
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 0.00D+00
+ ------(8):---------------------------- (W2)= 0.00D+00
+
+ STATISTICS AFTER ITERATIVE REFINEMENT 
+
+ NUMBER OF STEPS OF ITERATIVE REFINEMENTS PERFORMED     0
+
+ RESIDUAL IS ............ (MAX-NORM)        = 0.00D+00
+                       .. (2-NORM)          = 0.00D+00
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 1.00D+00
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 9.85D-05
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 0.00D+00
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 0.00D+00
+ ------(8):---------------------------- (W2)= 0.00D+00
+ ------(9):Upper bound ERROR ...............= 0.00D+00
+ -----(10):CONDITION NUMBER (1) ............= 2.00D+00
+ -----(11):CONDITION NUMBER (2) ............= 1.00D+00
+
+ END   ITERATIVE REFINEMENT 
+ ** Rank of processor needing largest memory in solve     :         0
+ ** Space in MBYTES used by this processor for solve      :         0
+ ** Avg. Space in MBYTES per working proc during solve    :         0
+
+ Global statistics
+ TIME to build/scatter RHS        =       0.000068
+ TIME in solution step (fwd/bwd)  =       0.000052
+  .. TIME in forward (fwd) step   =          0.000040
+  .. TIME in backward (bwd) step  =          0.000009
+ TIME to gather solution(cent.sol)=       0.000001
+ TIME to copy/scale RHS (dist.sol)=       0.000000
+ ELAPSED TIME IN SOLVE DRIVER=       0.0012
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.01      0.00      0.00
+  # Mémoire (Mo) :   417.46 /   415.17 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0047   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt162
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0048            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  LAMBDAR = CREA_RESU(OPERATION='AFFE',
+                      TYPE_RESU='EVOL_ELAS',
+                      AFFE=_F(CHAM_GD=UL,
+                              MODELE=modL,
+                              CHAM_MATER=MatL,
+                              INST=(0.0, ),
+                              PRECISION=0.0,
+                              CRITERE='RELATIF',),
+                      NOM_CHAM='DEPL',
+                      EXCIT=_F(CHARGE=UGL,
+                               TYPE_CHARGE='FIXE_CSTE',),
+                      )
+
+  # Mémoire (Mo) :   417.46 /   415.17 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0048   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt172
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0049            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  LAMBDAR = CALC_CHAMP(reuse=LAMBDAR,
+                       MODELE=modL,
+                       CHAM_MATER=MatL,
+                       RESULTAT=LAMBDAR,
+                       TOUT='OUI',
+                       PRECISION=1.E-06,
+                       FORCE=('REAC_NODA', ),
+                       EXCIT=_F(CHARGE=UGL,
+                                TYPE_CHARGE='FIXE_CSTE',),
+                       CRITERE='RELATIF',
+                       INFO=1,)
+
+  Le système linéaire à résoudre a 8 degrés de liberté:
+   - 8 sont des degrés de liberté physiques
+     (ils sont portés par 4 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0049   user+syst:        0.05s (syst:        0.02s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt179
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0050            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  tmp = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                   OPERATION='EXTR',
+                   RESULTAT=LAMBDAR,
+                   NOM_CHAM='REAC_NODA',
+                   INST=0.0,
+                   INTERPOL='NON',
+                   PRECISION=1.E-06,
+                   CRITERE='RELATIF',
+                   INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0050   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt185
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0051            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  LAMBDA = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                      OPERATION='ASSE',
+                      MODELE=modL,
+                      ASSE=_F(GROUP_MA=('Wd', ),
+                              CHAM_GD=tmp,
+                              CUMUL='NON',
+                              COEF_R=1.0,),
+                      INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0051   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt189
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0052            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  LAMBDAG = PROJ_CHAMP(RESULTAT=LAMBDAR,
+                       METHODE='AUTO',
+                       MODELE_1=modL,
+                       MODELE_2=modG,
+                       VIS_A_VIS=_F(GROUP_MA_1=('Wd', ),
+                                    GROUP_MA_2=('Front', ),
+                                    CAS_FIGURE='1.5D',),
+                       PROL_ZERO='OUI',
+                       ALARME='OUI',
+                       NUME_DDL=numDDLG,
+                       PROJECTION='OUI',
+                       INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0052   user+syst:        0.02s (syst:        0.00s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt201
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0053            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  LAMBDACH = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                        OPERATION='EXTR',
+                        RESULTAT=LAMBDAG,
+                        NOM_CHAM='REAC_NODA',
+                        INST=0.0,
+                        INTERPOL='NON',
+                        PRECISION=1.E-06,
+                        CRITERE='RELATIF',
+                        INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0053   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt204
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0054            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(tmp, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0054   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt205
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0055            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDA, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0055   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt206
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0056            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDAR, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0056   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt207
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0057            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDAG, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0057   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt224
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0058            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  UGR = CALC_CHAMP(reuse=UGR,
+                   MODELE=modG,
+                   CHAM_MATER=MatG,
+                   RESULTAT=UGR,
+                   TOUT='OUI',
+                   PRECISION=1.E-14,
+                   FORCE=('REAC_NODA', ),
+                   CRITERE='RELATIF',
+                   INFO=1,)
+
+  Le système linéaire à résoudre a 16 degrés de liberté:
+   - 16 sont des degrés de liberté physiques
+     (ils sont portés par 8 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0058   user+syst:        0.04s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt231
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0059            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  KAUG = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                    OPERATION='EXTR',
+                    RESULTAT=UGR,
+                    NOM_CHAM='REAC_NODA',
+                    INST=0.0,
+                    INTERPOL='NON',
+                    PRECISION=1.E-06,
+                    CRITERE='RELATIF',
+                    INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0059   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt243
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0060            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  KAUG2 = PROD_MATR_CHAM(MATR_ASSE=matAssA,
+                         CHAM_NO=UG,)
+
+   
+   !------------------------------------------------------------------------------------------------------------!
+   ! <A> <CALCULEL3_46>                                                                                         !
+   !                                                                                                            !
+   ! La MATR_ASSE et le CHAM_NO ont des numérotations différentes (numDDLA       .NUME et numDDLG       .NUME). !
+   ! Si la MATR_ASSE contient des ddls LAGR, ceux-ci sont mis à zéro.                                           !
+   !                                                                                                            !
+   !                                                                                                            !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                                             !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                                                     !
+   !------------------------------------------------------------------------------------------------------------!
+   
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0060   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt254
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0061            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  KAUG2R = CREA_RESU(OPERATION='AFFE',
+                     TYPE_RESU='EVOL_ELAS',
+                     AFFE=_F(CHAM_GD=KAUG2,
+                             MODELE=modA,
+                             CHAM_MATER=MatA,
+                             INST=(0.0, ),
+                             PRECISION=0.0,
+                             CRITERE='RELATIF',),
+                     NOM_CHAM='DEPL',
+                     )
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0061   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt257
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0062            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  KAUG2G = PROJ_CHAMP(RESULTAT=KAUG2R,
+                      METHODE='AUTO',
+                      MODELE_1=modA,
+                      MODELE_2=modG,
+                      VIS_A_VIS=_F(GROUP_MA_1=('Auxi', ),
+                                   TOUT_2='OUI',
+                                   CAS_FIGURE='2D',),
+                      PROL_ZERO='OUI',
+                      ALARME='OUI',
+                      NUME_DDL=numDDLG,
+                      PROJECTION='OUI',
+                      INFO=1,)
+
+
+PROJ_CHAMP (ou LIAISON_MAILLE) :
+  Le noeud N1 de coordonnées (-1.500000e+00,-5.000000e-01,0.000000e+00) est projeté à la distance 1.000000e+00
+
+PROJ_CHAMP (ou LIAISON_MAILLE) :
+  Le noeud N2 de coordonnées (-1.500000e+00,5.000000e-01,0.000000e+00) est projeté à la distance 1.000000e+00
+
+PROJ_CHAMP (ou LIAISON_MAILLE) :
+  Le noeud N3 de coordonnées (1.500000e+00,-5.000000e-01,0.000000e+00) est projeté à la distance 1.000000e+00
+
+PROJ_CHAMP (ou LIAISON_MAILLE) :
+  Le noeud N4 de coordonnées (1.500000e+00,5.000000e-01,0.000000e+00) est projeté à la distance 1.000000e+00
+   
+   !-------------------------------------------------------------------------------------!
+   ! <A> <CALCULEL5_48>                                                                  !
+   !                                                                                     !
+   !  Vous utilisez la commande PROJ_CHAMP ou un mot clé nécessitant de "projeter"       !
+   !  des noeuds sur des mailles (par exemple LIAISON_MAIL).                             !
+   !  Il y a 4 noeuds qui ont été projetés sur des mailles jugées distantes.             !
+   !                                                                                     !
+   !  Les noeuds sont jugés distants si :                                                !
+   !   * la distance à la maille la plus proche est supérieure à DISTANCE_ALARME         !
+   !     (si ce mot clé est utilisé).                                                    !
+   !   * ou si la distance à la maille la plus proche est supérieure à 1/10ème           !
+   !     de la taille de cette maille (si le mot clé DISTANCE_ALARME n'est pas utilisé). !
+   !                                                                                     !
+   !  Les 4 noeuds les plus éloignés ont été imprimés ci-dessus.                         !
+   !                                                                                     !
+   ! Risques et conseils :                                                               !
+   !   * Un maillage constitué des noeuds distants a été imprimé au format MED.          !
+   !     La visualisation de ce maillage pourra vous rassurer (ou non).                  !
+   !     Le nom du fichier MED est : REPE_OUT/maillage_proj_loin_00000001.med            !
+   !   * Le mot clé DISTANCE_MAX permet d'éviter que les noeuds trop distants ne soient  !
+   !     projetés (ou "liés" quand on utilise le mot clé LIAISON_MAIL).                  !
+   !   * Le mot clé DISTANCE_ALARME permet d'éviter cette alarme.                        !
+   !                                                                                     !
+   !                                                                                     !
+   ! Ceci est une alarme. Si vous ne comprenez pas le sens de cette                      !
+   ! alarme, vous pouvez obtenir des résultats inattendus !                              !
+   !-------------------------------------------------------------------------------------!
+   
+
+Création du fichier au format MED 3.3.1.
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0062   user+syst:        0.04s (syst:        0.01s, elaps:        0.03s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt262
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0063            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  KAUG2C = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                      OPERATION='EXTR',
+                      RESULTAT=KAUG2G,
+                      NOM_CHAM='DEPL',
+                      INST=0.0,
+                      INTERPOL='NON',
+                      PRECISION=1.E-06,
+                      CRITERE='RELATIF',
+                      INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0063   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt264
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0064            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=(_F(NOM=(KAUG2R, ),),
+                    _F(NOM=(KAUG2G, ),),
+                    ),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0064   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt272
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0065            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  total = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                     OPERATION='COMB',
+                     COMB=(_F(CHAM_GD=KAUG,
+                              COEF_R=1.0,),
+                           _F(CHAM_GD=LAMBDACH,
+                              COEF_R=-1.0,),
+                           _F(CHAM_GD=vneumG,
+                              COEF_R=1.0,),
+                           ),
+                     INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0065   user+syst:        0.02s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt277
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0066            Concept de type : char_meca
+  # ------------------------------------------------------------------------------------------
+  totalG = AFFE_CHAR_MECA(MODELE=modG,
+                          CHAMNO_IMPO=_F(CHAM_NO=total,
+                                         COEF_IMPO=1.0,
+                                         NUME_LAGR='NORMAL',),
+                          VERI_NORM='OUI',
+                          DOUBLE_LAGRANGE='OUI',
+                          INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0066   user+syst:        0.01s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt279
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0067            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=(_F(NOM=(KAUG2, ),),
+                    _F(NOM=(KAUG2C, ),),
+                    ),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0067   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt314
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0068            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(UG, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.46 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0068   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt315
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0069            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  UG = RESOUDRE(MATR=matAssG,
+                CHAM_NO=total,
+                CHAM_CINE=vcineG,
+                RESI_RELA=1.E-06,
+                POSTTRAITEMENTS='AUTO',
+                NMAX_ITER=0,
+                ALGORITHME='FGMRES',)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   3          16             64
+      executing #MPI =      1 and #OMP =      2
+
+
+
+ ****** SOLVE & CHECK STEP ********
+
+
+ STATISTICS PRIOR SOLVE PHASE     ...........
+ NUMBER OF RIGHT-HAND-SIDES                    =           1
+ BLOCKING FACTOR FOR MULTIPLE RHS              =           1
+ ICNTL (9)                                     =           1
+  --- (10)                                     =           4
+  --- (11)                                     =           1
+  --- (20)                                     =           0
+  --- (21)                                     =           0
+  --- (30)                                     =           0
+
+
+ BEGIN ITERATIVE REFINEMENT
+                  MAXIMUM NUMBER OF STEPS =   4
+
+
+ ERROR ANALYSIS BEFORE ITERATIVE REFINEMENT
+
+ RESIDUAL IS ............ (MAX-NORM)        = 3.52D-15
+                       .. (2-NORM)          = 4.36D-15
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 2.58D+05
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 2.46D-04
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 5.53D-17
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 9.66D-17
+ ------(8):---------------------------- (W2)= 0.00D+00
+
+ STATISTICS AFTER ITERATIVE REFINEMENT 
+
+ NUMBER OF STEPS OF ITERATIVE REFINEMENTS PERFORMED     0
+
+ RESIDUAL IS ............ (MAX-NORM)        = 3.52D-15
+                       .. (2-NORM)          = 4.36D-15
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 2.58D+05
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 2.46D-04
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 5.53D-17
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 9.66D-17
+ ------(8):---------------------------- (W2)= 0.00D+00
+ ------(9):Upper bound ERROR ...............= 1.95D-14
+ -----(10):CONDITION NUMBER (1) ............= 2.02D+02
+ -----(11):CONDITION NUMBER (2) ............= 1.00D+00
+
+ END   ITERATIVE REFINEMENT 
+ ** Rank of processor needing largest memory in solve     :         0
+ ** Space in MBYTES used by this processor for solve      :         0
+ ** Avg. Space in MBYTES per working proc during solve    :         0
+
+ Global statistics
+ TIME to build/scatter RHS        =       0.000060
+ TIME in solution step (fwd/bwd)  =       0.000041
+  .. TIME in forward (fwd) step   =          0.000031
+  .. TIME in backward (bwd) step  =          0.000009
+ TIME to gather solution(cent.sol)=       0.000000
+ TIME to copy/scale RHS (dist.sol)=       0.000000
+ ELAPSED TIME IN SOLVE DRIVER=       0.0014
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0069   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt320
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0070            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(UGR, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0070   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt328
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0071            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  UGR = CREA_RESU(OPERATION='AFFE',
+                  TYPE_RESU='EVOL_ELAS',
+                  AFFE=_F(CHAM_GD=UG,
+                          MODELE=modG,
+                          CHAM_MATER=MatG,
+                          INST=(0.0, ),
+                          PRECISION=0.0,
+                          CRITERE='RELATIF',),
+                  NOM_CHAM='DEPL',
+                  )
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0071   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt342
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0072            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(UIMP, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0072   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt345
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0073            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  UIMP = PROJ_CHAMP(RESULTAT=UGR,
+                    METHODE='COLLOCATION',
+                    MODELE_1=modG,
+                    MODELE_2=modL,
+                    VIS_A_VIS=_F(GROUP_MA_1=('Front', ),
+                                 GROUP_MA_2=('Wd', ),
+                                 CAS_FIGURE='1.5D',),
+                    ALARME='OUI',
+                    PROL_ZERO='NON',
+                    PROJECTION='OUI',
+                    INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0073   user+syst:        0.03s (syst:        0.01s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt346
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0074            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(UGL, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0074   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt347
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0075            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(vciL, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0075   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt348
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0076            Concept de type : char_cine_meca
+  # ------------------------------------------------------------------------------------------
+  UGL = AFFE_CHAR_CINE(MODELE=modL,
+                       EVOL_IMPO=UIMP,
+                       INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0076   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt349
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0077            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  vciL = CALC_CHAR_CINE(NUME_DDL=numDDLL,
+                        CHAR_CINE=(UGL, ),
+                        INST=0.0,
+                        INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0077   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt362
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0078            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(UL, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0078   user+syst:        0.01s (syst:        0.01s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt365
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0079            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  UL = RESOUDRE(MATR=matAssL,
+                CHAM_NO=vneumL,
+                CHAM_CINE=vciL,
+                RESI_RELA=1.E-06,
+                POSTTRAITEMENTS='AUTO',
+                NMAX_ITER=0,
+                ALGORITHME='FGMRES',)
+
+
+Entering DMUMPS 5.1.2 with JOB, N, NNZ =   3           8              8
+      executing #MPI =      1 and #OMP =      2
+
+
+
+ ****** SOLVE & CHECK STEP ********
+
+
+ STATISTICS PRIOR SOLVE PHASE     ...........
+ NUMBER OF RIGHT-HAND-SIDES                    =           1
+ BLOCKING FACTOR FOR MULTIPLE RHS              =           1
+ ICNTL (9)                                     =           1
+  --- (10)                                     =           4
+  --- (11)                                     =           1
+  --- (20)                                     =           0
+  --- (21)                                     =           0
+  --- (30)                                     =           0
+
+
+ BEGIN ITERATIVE REFINEMENT
+                  MAXIMUM NUMBER OF STEPS =   4
+
+
+ ERROR ANALYSIS BEFORE ITERATIVE REFINEMENT
+
+ RESIDUAL IS ............ (MAX-NORM)        = 0.00D+00
+                       .. (2-NORM)          = 0.00D+00
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 1.00D+00
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 1.47D-04
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 0.00D+00
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 0.00D+00
+ ------(8):---------------------------- (W2)= 0.00D+00
+
+ STATISTICS AFTER ITERATIVE REFINEMENT 
+
+ NUMBER OF STEPS OF ITERATIVE REFINEMENTS PERFORMED     0
+
+ RESIDUAL IS ............ (MAX-NORM)        = 0.00D+00
+                       .. (2-NORM)          = 0.00D+00
+ RINFOG(4):NORM OF input  Matrix  (MAX-NORM)= 1.00D+00
+ RINFOG(5):NORM OF Computed SOLUT (MAX-NORM)= 1.47D-04
+ RINFOG(6):SCALED RESIDUAL ...... (MAX-NORM)= 0.00D+00
+ RINFOG(7):COMPONENTWISE SCALED RESIDUAL(W1)= 0.00D+00
+ ------(8):---------------------------- (W2)= 0.00D+00
+ ------(9):Upper bound ERROR ...............= 0.00D+00
+ -----(10):CONDITION NUMBER (1) ............= 2.00D+00
+ -----(11):CONDITION NUMBER (2) ............= 1.00D+00
+
+ END   ITERATIVE REFINEMENT 
+ ** Rank of processor needing largest memory in solve     :         0
+ ** Space in MBYTES used by this processor for solve      :         0
+ ** Avg. Space in MBYTES per working proc during solve    :         0
+
+ Global statistics
+ TIME to build/scatter RHS        =       0.000081
+ TIME in solution step (fwd/bwd)  =       0.000058
+  .. TIME in forward (fwd) step   =          0.000042
+  .. TIME in backward (bwd) step  =          0.000014
+ TIME to gather solution(cent.sol)=       0.000002
+ TIME to copy/scale RHS (dist.sol)=       0.000000
+ ELAPSED TIME IN SOLVE DRIVER=       0.0011
+#1      Resolution des systemes lineaires                 CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0079   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt370
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0080            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDACH, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0080   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt379
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0081            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  LAMBDAR = CREA_RESU(OPERATION='AFFE',
+                      TYPE_RESU='EVOL_ELAS',
+                      AFFE=_F(CHAM_GD=UL,
+                              MODELE=modL,
+                              CHAM_MATER=MatL,
+                              INST=(0.0, ),
+                              PRECISION=0.0,
+                              CRITERE='RELATIF',),
+                      NOM_CHAM='DEPL',
+                      EXCIT=_F(CHARGE=UGL,
+                               TYPE_CHARGE='FIXE_CSTE',),
+                      )
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0081   user+syst:        0.01s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt387
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0082            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  LAMBDAR = CALC_CHAMP(reuse=LAMBDAR,
+                       MODELE=modL,
+                       CHAM_MATER=MatL,
+                       RESULTAT=LAMBDAR,
+                       TOUT='OUI',
+                       PRECISION=1.E-06,
+                       FORCE=('REAC_NODA', ),
+                       EXCIT=_F(CHARGE=UGL,
+                                TYPE_CHARGE='FIXE_CSTE',),
+                       CRITERE='RELATIF',
+                       INFO=1,)
+
+  Le système linéaire à résoudre a 8 degrés de liberté:
+   - 8 sont des degrés de liberté physiques
+     (ils sont portés par 4 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0082   user+syst:        0.02s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt394
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0083            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  tmp = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                   OPERATION='EXTR',
+                   RESULTAT=LAMBDAR,
+                   NOM_CHAM='REAC_NODA',
+                   INST=0.0,
+                   INTERPOL='NON',
+                   PRECISION=1.E-06,
+                   CRITERE='RELATIF',
+                   INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0083   user+syst:        0.01s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt399
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0084            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  LAMBDA = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                      OPERATION='ASSE',
+                      MODELE=modL,
+                      ASSE=_F(GROUP_MA=('Wd', ),
+                              CHAM_GD=tmp,
+                              CUMUL='NON',
+                              COEF_R=1.0,),
+                      INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0084   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt403
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0085            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  LAMBDAG = PROJ_CHAMP(RESULTAT=LAMBDAR,
+                       METHODE='AUTO',
+                       MODELE_1=modL,
+                       MODELE_2=modG,
+                       VIS_A_VIS=_F(GROUP_MA_1=('Wd', ),
+                                    GROUP_MA_2=('Front', ),
+                                    CAS_FIGURE='1.5D',),
+                       PROL_ZERO='OUI',
+                       ALARME='OUI',
+                       NUME_DDL=numDDLG,
+                       PROJECTION='OUI',
+                       INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0085   user+syst:        0.02s (syst:        0.01s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt409
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0086            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  LAMBDACH = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                        OPERATION='EXTR',
+                        RESULTAT=LAMBDAG,
+                        NOM_CHAM='REAC_NODA',
+                        INST=0.0,
+                        INTERPOL='NON',
+                        PRECISION=1.E-06,
+                        CRITERE='RELATIF',
+                        INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0086   user+syst:        0.01s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt412
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0087            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(tmp, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0087   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt413
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0088            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDA, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0088   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt414
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0089            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDAR, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0089   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt415
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0090            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(LAMBDAG, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0090   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt419
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0091            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(KAUG, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0091   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt422
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0092            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  total0 = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                      OPERATION='COMB',
+                      COMB=_F(CHAM_GD=total,
+                              COEF_R=1.0,),
+                      INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0092   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt436
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0093            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  UGR = CALC_CHAMP(reuse=UGR,
+                   MODELE=modG,
+                   CHAM_MATER=MatG,
+                   RESULTAT=UGR,
+                   TOUT='OUI',
+                   PRECISION=1.E-06,
+                   FORCE=('REAC_NODA', ),
+                   CRITERE='RELATIF',
+                   INFO=1,)
+
+  Le système linéaire à résoudre a 16 degrés de liberté:
+   - 16 sont des degrés de liberté physiques
+     (ils sont portés par 8 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0093   user+syst:        0.03s (syst:        0.01s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt447
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0094            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  KAUG = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                    OPERATION='EXTR',
+                    RESULTAT=UGR,
+                    NOM_CHAM='REAC_NODA',
+                    INST=0.0,
+                    INTERPOL='NON',
+                    PRECISION=1.E-06,
+                    CRITERE='RELATIF',
+                    INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0094   user+syst:        0.00s (syst:        0.00s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt480
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0095            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(total, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0095   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt485
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0096            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  total = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                     OPERATION='COMB',
+                     COMB=(_F(CHAM_GD=KAUG,
+                              COEF_R=1.0,),
+                           _F(CHAM_GD=LAMBDACH,
+                              COEF_R=-1.0,),
+                           _F(CHAM_GD=vneumG,
+                              COEF_R=1.0,),
+                           ),
+                     INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0096   user+syst:        0.02s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt489
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0097            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=_F(NOM=(totalG, ),),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0097   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt492
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0098            Concept de type : char_meca
+  # ------------------------------------------------------------------------------------------
+  totalG = AFFE_CHAR_MECA(MODELE=modG,
+                          CHAMNO_IMPO=_F(CHAM_NO=total,
+                                         COEF_IMPO=1.0,
+                                         NUME_LAGR='NORMAL',),
+                          VERI_NORM='OUI',
+                          DOUBLE_LAGRANGE='OUI',
+                          INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0098   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt497
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0099            Concept de type : cham_no_sdaster
+  # ------------------------------------------------------------------------------------------
+  R = CREA_CHAMP(TYPE_CHAM='NOEU_DEPL_R',
+                 OPERATION='COMB',
+                 COMB=(_F(CHAM_GD=total,
+                          COEF_R=1.0,),
+                       _F(CHAM_GD=total0,
+                          COEF_R=-1.0,),
+                       ),
+                 INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0099   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt501
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0100            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  DETRUIRE(CONCEPT=(_F(NOM=(R, ),),
+                    _F(NOM=(total0, ),),
+                    ),
+           INFO=1,)
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0100   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt523
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0101            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  ResG = CREA_RESU(OPERATION='AFFE',
+                   TYPE_RESU='EVOL_ELAS',
+                   AFFE=_F(CHAM_GD=UG,
+                           MODELE=modG,
+                           CHAM_MATER=MatG,
+                           INST=(0.0, ),
+                           PRECISION=0.0,
+                           CRITERE='RELATIF',),
+                   NOM_CHAM='DEPL',
+                   )
+
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0101   user+syst:        0.01s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt531
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0102            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  ResG = CALC_CHAMP(reuse=ResG,
+                    RESULTAT=ResG,
+                    TOUT='OUI',
+                    PRECISION=1.E-06,
+                    FORCE=('REAC_NODA', ),
+                    CRITERE='RELATIF',
+                    INFO=1,)
+
+  Le système linéaire à résoudre a 16 degrés de liberté:
+   - 16 sont des degrés de liberté physiques
+     (ils sont portés par 8 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.01      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0102   user+syst:        0.04s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt537
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0103            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  ResG = CALC_CHAMP(reuse=ResG,
+                    RESULTAT=ResG,
+                    TOUT='OUI',
+                    PRECISION=1.E-06,
+                    DEFORMATION=('EPME_NOEU', ),
+                    CRITERE='RELATIF',
+                    INFO=1,)
+
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.01      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0103   user+syst:        0.03s (syst:        0.01s, elaps:        0.01s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt563
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0104            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  IMPR_RESU(FORMAT='MED',
+            UNITE=80,
+            VERSION_MED='3.3.1',
+            RESU=_F(RESULTAT=ResG,
+                    INFO_MAILLAGE='NON',
+                    IMPR_NOM_VARI='OUI',),
+            PROC0='OUI',
+            INFO=1,)
+
+
+Création du fichier au format MED 3.3.1.
+  # Mémoire (Mo) :   417.61 /   415.32 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0104   user+syst:        0.05s (syst:        0.00s, elaps:        0.04s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt572
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0105            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  ResL = CREA_RESU(OPERATION='AFFE',
+                   TYPE_RESU='EVOL_ELAS',
+                   AFFE=_F(CHAM_GD=UL,
+                           MODELE=modL,
+                           CHAM_MATER=MatL,
+                           INST=(0.0, ),
+                           PRECISION=0.0,
+                           CRITERE='RELATIF',),
+                   NOM_CHAM='DEPL',
+                   )
+
+  # Mémoire (Mo) :   417.61 /   415.46 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0105   user+syst:        0.00s (syst:        0.00s, elaps:        0.00s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt580
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0106            Concept de type : evol_elas
+  # ------------------------------------------------------------------------------------------
+  ResL = CALC_CHAMP(reuse=ResL,
+                    RESULTAT=ResL,
+                    TOUT='OUI',
+                    PRECISION=1.E-06,
+                    FORCE=('REAC_NODA', ),
+                    CRITERE='RELATIF',
+                    INFO=1,)
+
+  Le système linéaire à résoudre a 8 degrés de liberté:
+   - 8 sont des degrés de liberté physiques
+     (ils sont portés par 4 noeuds du maillage)
+   - 0 sont les couples de paramètres de Lagrange associés
+     aux 0 relations linéaires dualisées.
+#2      Calculs elementaires et assemblages               CPU (USER+SYST/SYST/ELAPS):      0.00      0.00      0.00
+  # Mémoire (Mo) :   417.61 /   415.46 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0106   user+syst:        0.02s (syst:        0.00s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt606
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0107            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  IMPR_RESU(FORMAT='MED',
+            UNITE=81,
+            VERSION_MED='3.3.1',
+            RESU=_F(RESULTAT=ResL,
+                    INFO_MAILLAGE='NON',
+                    IMPR_NOM_VARI='OUI',),
+            PROC0='OUI',
+            INFO=1,)
+
+
+Création du fichier au format MED 3.3.1.
+  # Mémoire (Mo) :   417.61 /   415.46 /    44.30 /    33.93 (VmPeak / VmSize / Optimum / Minimum)
+  # Fin commande No : 0107   user+syst:        0.04s (syst:        0.02s, elaps:        0.02s)
+  # ------------------------------------------------------------------------------------------
+
+.. __stg1_txt634
+  # ------------------------------------------------------------------------------------------
+  # Commande No :  0108            Concept de type : -
+  # ------------------------------------------------------------------------------------------
+  FIN(FORMAT_HDF='NON',
+      RETASSAGE='NON',
+      INFO_RESU='OUI',
+      PROC0='OUI',
+      )
+
+   
+   !-------------------------------------------------------------------------!
+   ! <I> <CATAMESS_89>                                                       !
+   !                                                                         !
+   !     Liste des alarmes émises lors de l'exécution du calcul.             !
+   !                                                                         !
+   !     Les alarmes que vous avez choisies d'ignorer sont précédées de (*). !
+   !     Nombre d'occurrences pour chacune des alarmes :                     !
+   !            CALCULEL3_46         émise    1 fois                         !
+   !            CALCULEL5_48         émise    1 fois                         !
+   !            SUPERVIS_1           émise    1 fois                         !
+   !-------------------------------------------------------------------------!
+   
+
+ ======>
+
+ STRUCTURE DU CONCEPT UGR      CALCULE POUR 1 NUMERO D'ORDRE
+
+ LISTE DES NOMS SYMBOLIQUES:
+ ! ---------- !----------------!----------------!
+ ! NUME_ORDRE !      DEPL      !   REAC_NODA    !
+ ! ---------- !----------------!----------------!
+ !          1 !     DEPL_R     !     DEPL_R     !
+ ! ---------- !----------------!----------------!
+
+ LISTE DES NOMS DE VARIABLES D'ACCES:
+                                      INST             DE TYPE  R
+
+ LISTE DES NOMS DE PARAMETRES:
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ ! NUME_ORDRE !    CARAELEM    !    CHAMPMAT    !     EXCIT      !   ITER_GCPC    !    METHODE     !     MODELE     !     RENUM      !    STOCKAGE    !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ !          1 !       K8       !       K8       !      K24       !       I        !      K16       !       K8       !      K16       !      K16       !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+
+ ======>
+
+ STRUCTURE DU CONCEPT UIMP     CALCULE POUR 1 NUMERO D'ORDRE
+
+ LISTE DES NOMS SYMBOLIQUES:
+ ! ---------- !----------------!
+ ! NUME_ORDRE !      DEPL      !
+ ! ---------- !----------------!
+ !          1 !     DEPL_R     !
+ ! ---------- !----------------!
+
+ LISTE DES NOMS DE VARIABLES D'ACCES:
+                                      INST             DE TYPE  R
+
+ LISTE DES NOMS DE PARAMETRES:
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ ! NUME_ORDRE !    CARAELEM    !    CHAMPMAT    !     EXCIT      !   ITER_GCPC    !    METHODE     !     MODELE     !     RENUM      !    STOCKAGE    !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ !          1 !       K8       !       K8       !      K24       !       I        !      K16       !       K8       !      K16       !      K16       !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+
+ ======>
+
+ STRUCTURE DU CONCEPT ResG     CALCULE POUR 1 NUMERO D'ORDRE
+
+ LISTE DES NOMS SYMBOLIQUES:
+ ! ---------- !----------------!----------------!----------------!
+ ! NUME_ORDRE !      DEPL      !   REAC_NODA    !   EPME_NOEU    !
+ ! ---------- !----------------!----------------!----------------!
+ !          1 !     DEPL_R     !     DEPL_R     !     EPSI_R     !
+ ! ---------- !----------------!----------------!----------------!
+
+ LISTE DES NOMS DE VARIABLES D'ACCES:
+                                      INST             DE TYPE  R
+
+ LISTE DES NOMS DE PARAMETRES:
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ ! NUME_ORDRE !    CARAELEM    !    CHAMPMAT    !     EXCIT      !   ITER_GCPC    !    METHODE     !     MODELE     !     RENUM      !    STOCKAGE    !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ !          1 !       K8       !       K8       !      K24       !       I        !      K16       !       K8       !      K16       !      K16       !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+
+ ======>
+
+ STRUCTURE DU CONCEPT ResL     CALCULE POUR 1 NUMERO D'ORDRE
+
+ LISTE DES NOMS SYMBOLIQUES:
+ ! ---------- !----------------!----------------!
+ ! NUME_ORDRE !      DEPL      !   REAC_NODA    !
+ ! ---------- !----------------!----------------!
+ !          1 !     DEPL_R     !     DEPL_R     !
+ ! ---------- !----------------!----------------!
+
+ LISTE DES NOMS DE VARIABLES D'ACCES:
+                                      INST             DE TYPE  R
+
+ LISTE DES NOMS DE PARAMETRES:
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ ! NUME_ORDRE !    CARAELEM    !    CHAMPMAT    !     EXCIT      !   ITER_GCPC    !    METHODE     !     MODELE     !     RENUM      !    STOCKAGE    !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ !          1 !       K8       !       K8       !      K24       !       I        !      K16       !       K8       !      K16       !      K16       !
+ ! ---------- !----------------!----------------!----------------!----------------!----------------!----------------!----------------!----------------!
+ ---------------------------------------------------------------------------
+ Concepts de la base: G
+    Nom       Type                 Taille (Mo)         Nombre      Nombre de
+                                                     d'objets       segments
+    TOTAL                                27.50            500            816
+  
+    asMeshG    MAILLAGE_SDASTER           0.00             34             52
+    modG       MODELE_SDASTER             0.00              8             13
+    matG       MATER_SDASTER              0.00              5              5
+    MatG       CHAM_MATER                 0.00              6             11
+    FixG       CHAR_CINE_MECA             0.00              4              4
+    FdG        CHAR_MECA                  0.00              8             13
+    matElemG   MATR_ELEM_DEPL_R           0.00              6             16
+    numDDLG    NUME_DDL_SDASTER           0.00             11             16
+    matAssG    MATR_ASSE_DEPL_R           0.00             12             18
+    vcineG     CHAM_NO_SDASTER            0.00              4              4
+    vecElemG   VECT_ELEM_DEPL_R           0.00              6             16
+    vneumG     CHAM_NO_SDASTER            0.00              4              4
+    asMeshL    MAILLAGE_SDASTER           0.00             34             48
+    modL       MODELE_SDASTER             0.00              8             13
+    matL       MATER_SDASTER              0.00              5              5
+    MatL       CHAM_MATER                 0.00              6             11
+    FdL        CHAR_MECA                  0.00              8             13
+    blank      CHAR_CINE_MECA             0.00              4              4
+    matElemL   MATR_ELEM_DEPL_R           0.00              6             16
+    numDDLL    NUME_DDL_SDASTER           0.00             11             16
+    matAssL    MATR_ASSE_DEPL_R           0.00             12             18
+    vecElemL   VECT_ELEM_DEPL_R           0.00              6             16
+    vneumL     CHAM_NO_SDASTER            0.00              4              4
+    vblank     CHAM_NO_SDASTER            0.00              4              4
+    modA       MODELE_SDASTER             0.00              8             13
+    matA       MATER_SDASTER              0.00              5              5
+    MatA       CHAM_MATER                 0.00              6             11
+    FixA       CHAR_CINE_MECA             0.00              4              4
+    FdA        CHAR_MECA                  0.00              8             13
+    matElemA   MATR_ELEM_DEPL_R           0.00              6             16
+    numDDLA    NUME_DDL_SDASTER           0.00             11             16
+    ResG       EVOL_ELAS                  0.05             32             48
+    matAssA    MATR_ASSE_DEPL_R           0.00              9             15
+    vcineA     CHAM_NO_SDASTER            0.00              4              4
+    vecElemA   VECT_ELEM_DEPL_R           0.00              6             16
+    vneumA     CHAM_NO_SDASTER            0.00              4              4
+    UG         CHAM_NO_SDASTER            0.00              5              5
+    UGR        EVOL_ELAS                  0.05             25             39
+    UIMP       EVOL_ELAS                  0.01             19             25
+    UGL        CHAR_CINE_MECA             0.00              3              3
+    vciL       CHAM_NO_SDASTER            0.00              4              4
+    UL         CHAM_NO_SDASTER            0.00              5              5
+    totalG     CHAR_MECA                  0.01             23             43
+    ResL       EVOL_ELAS                  0.05             25             39
+    LAMBDACH   CHAM_NO_SDASTER            0.00              9             14
+    KAUG       CHAM_NO_SDASTER            0.00              9             14
+    total      CHAM_NO_SDASTER            0.00              9             14
+    &FOZERO                               0.00              2              2
+    &&_NUM_C                              0.00              1              1
+    &CATA.AC                              0.00              2              4
+    &CATA.CL                              0.60              1              3
+    &CATA.GD                              0.14              4             11
+    &CATA.ME                              0.20              2              4
+    &CATA.OP                              0.30              4             19
+    &CATA.PH                              0.00              1              1
+    &CATA.PR                              0.00              2              4
+    &CATA.TE                             26.03             17             42
+    &CATA.TH                              0.01              2              4
+    &CATA.TM                              0.01              7             11
+ ---------------------------------------------------------------------------
+
+
+     Nom de la base                          :  GLOBALE
+     Nombre d'enregistrements utilisés       :  46
+     Nombre d'enregistrements maximum        :  62914
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre total d'accès en lecture         :  7
+     Volume des accès en lecture             :          5.47 Mo.
+     Nombre total d'accès en écriture        :  62
+     Volume des accès en écriture            :         48.44 Mo.
+     Nombre d'identificateurs utilisés       :  993
+     Taille maximum du répertoire            :  2000
+     Pourcentage d'utilisation du répertoire :  49 %
+
+
+     Nom de la base                          :  VOLATILE
+     Nombre d'enregistrements utilisés       :  3
+     Nombre d'enregistrements maximum        :  62914
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre total d'accès en lecture         :  0
+     Volume des accès en lecture             :          0.00 Mo.
+     Nombre total d'accès en écriture        :  6
+     Volume des accès en écriture            :          4.69 Mo.
+     Nombre d'identificateurs utilisés       :  856
+     Taille maximum du répertoire            :  2000
+     Pourcentage d'utilisation du répertoire :  42 %
+
+ <FIN> Arrêt normal dans "FIN".
+ <I> <FIN> ARRET NORMAL DANS "FIN" PAR APPEL A "JEFINI".
+
+
+     Nom de la base                          :  ELEMBASE
+     Nombre d'enregistrements utilisés       :  43
+     Nombre d'enregistrements maximum        :  512
+     Longueur d'enregistrement (octets)      :  819200
+     Nombre total d'accès en lecture         :  60
+     Volume des accès en lecture             :         46.88 Mo.
+     Nombre total d'accès en écriture        :  0
+     Volume des accès en écriture            :          0.00 Mo.
+     Nombre d'identificateurs utilisés       :  123
+     Taille maximum du répertoire            :  300
+     Pourcentage d'utilisation du répertoire :  41 %
+  
+ <I> <FIN> MEMOIRE JEVEUX MINIMALE REQUISE POUR L'EXECUTION :                      33.93 Mo
+ <I> <FIN> MEMOIRE JEVEUX OPTIMALE REQUISE POUR L'EXECUTION :                      44.30 Mo
+ <I> <FIN> MAXIMUM DE MEMOIRE UTILISEE PAR LE PROCESSUS LORS DE L'EXECUTION :     417.61 Mo
+  
+ <I>       FERMETURE DES BASES EFFECTUEE
+  
+   STATISTIQUES CONCERNANT L'ALLOCATION DYNAMIQUE :
+     TAILLE CUMULEE MAXIMUM            :                   44  Mo.
+     TAILLE CUMULEE LIBEREE            :                    8  Mo.
+     NOMBRE TOTAL D'ALLOCATIONS        :                25790
+     NOMBRE TOTAL DE LIBERATIONS       :                25770
+     APPELS AU MECANISME DE LIBERATION :                    0
+     TAILLE MEMOIRE CUMULEE RECUPEREE  :                    0  Mo.
+     VOLUME DES LECTURES               :                    0  Mo.
+     VOLUME DES ECRITURES              :                    0  Mo.
+  
+   MEMOIRE JEVEUX MINIMALE REQUISE POUR L'EXECUTION :      33.93 Mo
+     - IMPOSE DE NOMBREUX ACCES DISQUE
+     - RALENTIT LA VITESSE D'EXECUTION
+   MEMOIRE JEVEUX OPTIMALE REQUISE POUR L'EXECUTION :      44.30 Mo
+     - LIMITE LES ACCES DISQUE
+     - AMELIORE LA VITESSE D'EXECUTION
+   MAXIMUM DE MEMOIRE UTILISEE PAR LE PROCESSUS     :     417.61 Mo
+     - COMPREND LA MEMOIRE CONSOMMEE PAR  JEVEUX, 
+       LE SUPERVISEUR PYTHON, LES LIBRAIRIES EXTERNES
+  
+ <I>       FIN D'EXECUTION LE : DI-20-DECE-2020 12:00:49
+
+
+  <I> Informations sur les temps d'exécution
+      Temps cpu user total                    1.90 s
+      Temps cpu systeme total                 0.54 s
+      Temps elapsed total                     1.61 s
+      Temps restant                         808.39 s
+
+
+  La signature de la base sauvegardée est (à l'adresse 0) :
+    10e972f635affdea1bab6e10b9bd9f309971c41e
+
+ ********************************************************************************
+ * COMMAND                  :       USER :     SYSTEM :   USER+SYS :    ELAPSED *
+ ********************************************************************************
+ * init (jdc)               :       1.92 :       0.56 :       2.48 :       1.64 *
+ *  . compile               :       0.00 :       0.00 :       0.00 :       0.00 *
+ *  . exec_compile          :       1.56 :       0.54 :       2.10 :       1.25 *
+ * DEBUT                    :       0.03 :       0.04 :       0.07 :       0.07 *
+ * LIRE_MAILLAGE            :       0.02 :       0.00 :       0.02 :       0.03 *
+ * AFFE_MODELE              :       0.01 :       0.00 :       0.01 :       0.01 *
+ * DEFI_MATERIAU            :       0.01 :       0.00 :       0.01 :       0.01 *
+ * AFFE_MATERIAU            :       0.02 :       0.00 :       0.02 :       0.01 *
+ * AFFE_CHAR_CINE           :       0.00 :       0.01 :       0.01 :       0.01 *
+ * AFFE_CHAR_MECA           :       0.01 :       0.00 :       0.01 :       0.01 *
+ * CALC_MATR_ELEM           :       0.00 :       0.01 :       0.01 :       0.00 *
+ * NUME_DDL                 :       0.01 :       0.00 :       0.01 :       0.00 *
+ * ASSE_MATRICE             :       0.00 :       0.01 :       0.01 :       0.00 *
+ * CALC_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_VECT_ELEM           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * ASSE_VECTEUR             :       0.01 :       0.00 :       0.01 :       0.00 *
+ * FACTORISER               :       0.01 :       0.00 :       0.01 :       0.00 *
+ * LIRE_MAILLAGE            :       0.01 :       0.01 :       0.02 :       0.01 *
+ * AFFE_MODELE              :       0.00 :       0.01 :       0.01 :       0.01 *
+ * DEFI_MATERIAU            :       0.01 :       0.00 :       0.01 :       0.01 *
+ * AFFE_MATERIAU            :       0.01 :       0.00 :       0.01 :       0.01 *
+ * AFFE_CHAR_MECA           :       0.01 :       0.00 :       0.01 :       0.00 *
+ * AFFE_CHAR_CINE           :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CALC_MATR_ELEM           :       0.00 :       0.00 :       0.00 :       0.01 *
+ * NUME_DDL                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * ASSE_MATRICE             :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CALC_VECT_ELEM           :       0.01 :       0.00 :       0.01 :       0.00 *
+ * ASSE_VECTEUR             :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.01 *
+ * FACTORISER               :       0.00 :       0.00 :       0.00 :       0.00 *
+ * AFFE_MODELE              :       0.02 :       0.00 :       0.02 :       0.01 *
+ * DEFI_MATERIAU            :       0.01 :       0.01 :       0.02 :       0.00 *
+ * AFFE_MATERIAU            :       0.01 :       0.00 :       0.01 :       0.01 *
+ * AFFE_CHAR_CINE           :       0.01 :       0.00 :       0.01 :       0.01 *
+ * AFFE_CHAR_MECA           :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CALC_MATR_ELEM           :       0.01 :       0.00 :       0.01 :       0.01 *
+ * NUME_DDL                 :       0.01 :       0.00 :       0.01 :       0.01 *
+ * ASSE_MATRICE             :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_VECT_ELEM           :       0.00 :       0.01 :       0.01 :       0.00 *
+ * ASSE_VECTEUR             :       0.00 :       0.00 :       0.00 :       0.00 *
+ * FACTORISER               :       0.01 :       0.00 :       0.01 :       0.01 *
+ * RESOUDRE                 :       0.01 :       0.00 :       0.01 :       0.01 *
+ * CREA_RESU                :       0.01 :       0.00 :       0.01 :       0.01 *
+ * PROJ_CHAMP               :       0.02 :       0.00 :       0.02 :       0.01 *
+ * AFFE_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.01 *
+ * CALC_CHAR_CINE           :       0.01 :       0.01 :       0.02 :       0.00 *
+ * RESOUDRE                 :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CREA_RESU                :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CALC_CHAMP               :       0.03 :       0.02 :       0.05 :       0.02 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.00 *
+ * PROJ_CHAMP               :       0.02 :       0.00 :       0.02 :       0.02 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.01 *
+ * CALC_CHAMP               :       0.03 :       0.01 :       0.04 :       0.01 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.00 *
+ * PROD_MATR_CHAM           :       0.00 :       0.00 :       0.00 :       0.01 *
+ * CREA_RESU                :       0.00 :       0.00 :       0.00 :       0.00 *
+ * PROJ_CHAMP               :       0.03 :       0.01 :       0.04 :       0.03 *
+ * CREA_CHAMP               :       0.00 :       0.00 :       0.00 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CREA_CHAMP               :       0.01 :       0.01 :       0.02 :       0.01 *
+ * AFFE_CHAR_MECA           :       0.00 :       0.01 :       0.01 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.01 :       0.00 :       0.01 :       0.00 *
+ * RESOUDRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CREA_RESU                :       0.01 :       0.00 :       0.01 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * PROJ_CHAMP               :       0.02 :       0.01 :       0.03 :       0.02 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.01 :       0.00 :       0.01 :       0.00 *
+ * AFFE_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_CHAR_CINE           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.01 :       0.01 :       0.00 *
+ * RESOUDRE                 :       0.00 :       0.00 :       0.00 :       0.01 *
+ * DETRUIRE                 :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CREA_RESU                :       0.01 :       0.00 :       0.01 :       0.01 *
+ * CALC_CHAMP               :       0.02 :       0.00 :       0.02 :       0.01 *
+ * CREA_CHAMP               :       0.00 :       0.01 :       0.01 :       0.01 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.00 *
+ * PROJ_CHAMP               :       0.01 :       0.01 :       0.02 :       0.02 *
+ * CREA_CHAMP               :       0.00 :       0.01 :       0.01 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.01 :       0.00 :       0.01 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CREA_CHAMP               :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_CHAMP               :       0.02 :       0.01 :       0.03 :       0.02 *
+ * CREA_CHAMP               :       0.00 :       0.00 :       0.00 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CREA_CHAMP               :       0.01 :       0.01 :       0.02 :       0.01 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * AFFE_CHAR_MECA           :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CREA_CHAMP               :       0.01 :       0.00 :       0.01 :       0.00 *
+ * DETRUIRE                 :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CREA_RESU                :       0.01 :       0.00 :       0.01 :       0.00 *
+ * CALC_CHAMP               :       0.03 :       0.01 :       0.04 :       0.01 *
+ * CALC_CHAMP               :       0.02 :       0.01 :       0.03 :       0.01 *
+ * IMPR_RESU                :       0.05 :       0.00 :       0.05 :       0.04 *
+ * CREA_RESU                :       0.00 :       0.00 :       0.00 :       0.00 *
+ * CALC_CHAMP               :       0.02 :       0.00 :       0.02 :       0.02 *
+ * IMPR_RESU                :       0.02 :       0.02 :       0.04 :       0.02 *
+ * FIN                      :       0.10 :       0.07 :       0.17 :       0.09 *
+ *  . part Superviseur      :       1.19 :       0.30 :       1.49 :       1.11 *
+ *  . part Fortran          :       0.73 :       0.26 :       0.99 :       0.52 *
+ ********************************************************************************
+ * TOTAL_JOB                :       1.90 :       0.54 :       2.44 :       1.61 *
+ ********************************************************************************
+
+[-2.50000000e+00 -5.27378606e-01 -2.50000000e+00  5.27378606e-01
+  2.50000000e+00 -8.60422844e-16  2.50000000e+00 -3.88578059e-16
+  0.00000000e+00  0.00000000e+00  0.00000000e+00  0.00000000e+00
+  0.00000000e+00  0.00000000e+00  0.00000000e+00  0.00000000e+00]
+iter #1
+NORME RESIDU ABSOLU:  [7.173652029332763]
+NORME RESIDU RELATIF:  [1.]
+--- Fin de l'exécution
+EXECUTION_CODE_ASTER_EXIT_37538=0
