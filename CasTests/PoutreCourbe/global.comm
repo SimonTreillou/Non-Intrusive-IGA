@@ -6,7 +6,7 @@ from numpy import linalg
 import scipy.sparse as sp
 import scipy.sparse.linalg as splalg
 import sys
-sys.path.insert( 0, '/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe')
+sys.path.insert( 0, '/home/larousse/Bureau/INSA/5A/Projet/Git/Non-Intrusive-IGA/CasTests/PoutreCourbe')
 import reac_noda as rn
 import libaster as la
 
@@ -127,7 +127,7 @@ DETRUIRE(CONCEPT=_F(NOM=nodalrea))
 
 
 
-#for ifp in range(1,30):             
+for ifp in range(1,30):             
     print('iter #'+str(ifp))
     ####################################################################################################
     # Résolution global
@@ -171,51 +171,53 @@ DETRUIRE(CONCEPT=_F(NOM=nodalrea))
     ####################################################################################################
     # Extraction réaction nodale
     ####################################################################################################
-#    DETRUIRE(CONCEPT=_F(NOM=LAMBDA))
-#    LAMBDA = la.compute_nodal_reaction_from_field_on_group(UL,modL,matL,'Diri',char_cine=UGL)
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDA))
+    LAMBDA = la.compute_nodal_reaction_from_field_on_group(UL,modL,matL,'Diri',char_cine=UGL)
 
     ####################################################################################################
     # Extraction KA*UG
     ####################################################################################################
-#    DETRUIRE(CONCEPT=_F(NOM=toto))
-#    DETRUIRE(CONCEPT=_F(NOM=nodalrea))
-#    DETRUIRE(CONCEPT=_F(NOM=KAUG))
-#    DETRUIRE(CONCEPT=_F(NOM=total))
-#    print("on est à KAUG")
-    #KAUG = la.compute_nodal_reaction_from_field_on_group(UG,modG,MatG,'Auxi',char_cine=None)
-#    resu = CREA_RESU(OPERATION = 'AFFE',
- #                    TYPE_RESU = 'EVOL_ELAS',
- #                    NOM_CHAM = 'DEPL',
- #                    AFFE = _F(CHAM_GD = UG,
- #                              MODELE = modG,
- #                             CHAM_MATER = MatG,
- #                              INST = 0.,)
-  #                   )
-  #  IMPR_RESU(FORMAT = 'MED',UNITE=84,RESU=_F(RESULTAT=resu))
-  #  print("pb avec Calc champ ?")
-   # resu= CALC_CHAMP(reuse = resu,
-    #                 FORCE = 'REAC_NODA',
-#                     #TOUT='OUI',
-#                     GROUP_MA = 'Auxi', # SUR JUSTE FD OU WD => REAC_NODA pas possible
-#                     RESULTAT = resu,
-#                     INST=0.)
+    DETRUIRE(CONCEPT=_F(NOM=toto))
+    DETRUIRE(CONCEPT=_F(NOM=nodalrea))
+    DETRUIRE(CONCEPT=_F(NOM=KAUG))
+    DETRUIRE(CONCEPT=_F(NOM=total))
+    
+    KAUG = la.compute_nodal_reaction_from_field_on_group(UG,modG,MatG,'AuxiG',char_cine=None)
+
+    print("on est à KAUG")
+    resu = CREA_RESU(OPERATION = 'AFFE',
+                     TYPE_RESU = 'EVOL_ELAS',
+                     NOM_CHAM = 'DEPL',
+                     AFFE = _F(CHAM_GD = UG,
+                               MODELE = modG,
+                              CHAM_MATER = MatG,
+                               INST = 0.,)
+                     )
+    IMPR_RESU(FORMAT = 'MED',UNITE=84,RESU=_F(RESULTAT=resu))
+    print("pb avec Calc champ ?")
+    resu= CALC_CHAMP(reuse = resu,
+                     FORCE = 'REAC_NODA',
+                     #TOUT='OUI',
+                     GROUP_MA = 'Auxi', # SUR JUSTE FD OU WD => REAC_NODA pas possible
+                     RESULTAT = resu,
+                     INST=0.)
 #    print("pb avec crea champ ?")
-#    KAUG = CREA_CHAMP(OPERATION = 'EXTR',
-#                                NOM_CHAM = 'REAC_NODA',
-#                                TYPE_CHAM = 'NOEU_DEPL_R',
-#                                RESULTAT = resu,
-#                                INST=0.
-#                                )    
+    KAUG = CREA_CHAMP(OPERATION = 'EXTR',
+                                NOM_CHAM = 'REAC_NODA',
+                                TYPE_CHAM = 'NOEU_DEPL_R',
+                                RESULTAT = resu,
+                                INST=0.
+                                )    
   
     
-#    total = CREA_CHAMP(OPERATION='COMB',
-#	    	        TYPE_CHAM='NOEU_DEPL_R',
-#		        COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
-#		              _F(CHAM_GD=LAMBDA,COEF_R=-1.),
-#		    	      _F(CHAM_GD=vneumG,COEF_R=1.),)
-#		       )
- #   DETRUIRE(CONCEPT=_F(NOM=toto))
-  #  DETRUIRE(CONCEPT=_F(NOM=nodalrea))
+    total = CREA_CHAMP(OPERATION='COMB',
+	    	        TYPE_CHAM='NOEU_DEPL_R',
+		        COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
+		              _F(CHAM_GD=LAMBDA,COEF_R=-1.),
+		    	      _F(CHAM_GD=vneumG,COEF_R=1.),)
+		       )
+    DETRUIRE(CONCEPT=_F(NOM=toto))
+    DETRUIRE(CONCEPT=_F(NOM=nodalrea))
     ####################################################################################################
     # Calcul de convergence
     ####################################################################################################
