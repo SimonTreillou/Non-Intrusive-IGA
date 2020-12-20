@@ -217,10 +217,10 @@ UGR = CALC_CHAMP(FORCE = 'REAC_NODA',
                      reuse = UGR,
                      MODELE=modG,
                      CHAM_MATER=MatG,
-                     #EXCIT=_F(CHARGE=FdG,),
+                     EXCIT=_F(CHARGE=FdG,),
                      TOUT='OUI',
-                     PRECISION=1.0E-14,
-                     #GROUP_MA='Auxi',
+                     #PRECISION=1.0E-14,
+                     #GROUP_MA='Compl',
                      RESULTAT = UGR,
                     )
                     
@@ -253,8 +253,8 @@ KAUG2R =CREA_RESU(OPERATION = 'AFFE',
                          CHAM_MATER = MatA,
                          INST = 0.,)
               )     
-KAUG2G=PROJ_CHAMP(RESULTAT=KAUG2R, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
-               VIS_A_VIS=_F(GROUP_MA_1='Auxi',TOUT_2='OUI', CAS_FIGURE='2D'))                                
+KAUG2G=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+               VIS_A_VIS=_F(GROUP_MA_1='Auxi',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))                                
 KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
                   NOM_CHAM = 'DEPL',
                   TYPE_CHAM = 'NOEU_DEPL_R',
@@ -264,10 +264,10 @@ KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
 DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G))  )  
 
 
-print(KAUG2.EXTR_COMP().valeurs)
+print(KAUG2C.EXTR_COMP().valeurs)
 total = CREA_CHAMP(OPERATION='COMB',
 		    TYPE_CHAM='NOEU_DEPL_R',
-		    COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
+		    COMB=(_F(CHAM_GD=KAUG2C,COEF_R=1.),
 		    	  _F(CHAM_GD=LAMBDACH,COEF_R=-1.),
 		    	  _F(CHAM_GD=vneumG,COEF_R=1.),)
 		   )
@@ -305,7 +305,7 @@ DETRUIRE(CONCEPT=(_F(NOM=KAUG2),_F(NOM=KAUG2C)))
 
 
 normr = list()
-for ifp in range(1,2):             
+for ifp in range(1,10):             
     print('iter #'+str(ifp))
     
     ####################################################################################################
@@ -436,17 +436,17 @@ for ifp in range(1,2):
                      RESULTAT = UGR,
                     )
 
-    #KAUG1=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
-    #                   VIS_A_VIS=_F(GROUP_MA_1='Auxi',TOUT_2='OUI', CAS_FIGURE='2D'))   
+    KAUG1=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+                       VIS_A_VIS=_F(GROUP_MA_1='Auxi',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))   
                        
                        
     KAUG = CREA_CHAMP(OPERATION = 'EXTR',
                           NOM_CHAM = 'REAC_NODA',
                           TYPE_CHAM = 'NOEU_DEPL_R',
-                          RESULTAT = UGR,
+                          RESULTAT = KAUG1,
                           INST=0.,
                           )  
-    #DETRUIRE(CONCEPT=_F(NOM=KAUG1))                                        
+    DETRUIRE(CONCEPT=_F(NOM=KAUG1))                                        
     #KAUG = CREA_CHAMP(OPERATION = 'EXTR',
     #                            NOM_CHAM = 'REAC_NODA',
     #                            TYPE_CHAM = 'NOEU_DEPL_R',
@@ -475,7 +475,7 @@ for ifp in range(1,2):
     #                      )   
     #DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G))  )                                   
 
-    #print(KAUG2C.EXTR_COMP().valeurs)
+    print(KAUG.EXTR_COMP().valeurs)
     
     DETRUIRE(CONCEPT=_F(NOM=total))  
     total = CREA_CHAMP(OPERATION='COMB',
