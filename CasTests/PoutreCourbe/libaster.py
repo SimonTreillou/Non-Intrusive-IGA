@@ -27,8 +27,16 @@ from code_aster.Cata.Commands import DETRUIRE
 from code_aster.Cata.Commands import CREA_CHAMP
 #import reac_noda as rn
 
+AsterDim = 100
+o = [None]*AsterDim
+AsterCount = iter(range(AsterDim))
 
-def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
+
+o2 = [None]*AsterDim
+AsterCount2 = iter(range(AsterDim))
+
+
+def Global(E=100000.,Nu=0.3,fx=0.,fy=100.):
 
 	### Lecture du maillage
 	asMeshG = LIRE_MAILLAGE(FORMAT = 'MED', 
@@ -100,30 +108,6 @@ def Global(E=100000.,Nu=0.3,fx=0.,fy=10.):
 	# Factorisation de la matrice de rigidité et prise en compte des CL de 
 	# Dirichlet éliminées
 	matAssG = FACTORISER(reuse=matAssG,MATR_ASSE=matAssG, METHODE='MUMPS',);
-	
-	# Résolution du problèm Ku=F
-	sol = RESOUDRE(MATR=matAssG, CHAM_NO=vneumG, CHAM_CINE=vcineG,)
-
-	# Création du concept de résultat
-	Res = CREA_RESU(OPERATION = 'AFFE',
-		        TYPE_RESU = 'EVOL_ELAS',
-		        NOM_CHAM = 'DEPL',
-		        AFFE = _F(CHAM_GD = sol,
-		                MODELE = modG,
-		                CHAM_MATER = MatG,
-		                INST = 1.
-		                )
-		        )
-
-	# Calcul des champs de réactions nodales
-	Res = CALC_CHAMP(reuse = Res,
-		         RESULTAT = Res,
-		         FORCE = 'REAC_NODA',
-		         TOUT = 'OUI',
-		         )
-		         
-	# Sauvegarde au format med
-	IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=Res))
 
 	return matAssG, vcineG, vneumG, MatG, modG, numDDLG  
 	
@@ -168,19 +152,29 @@ def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
 		 FORCE_CONTOUR= _F(GROUP_MA='Wd',FX=fx,FY=fy),
 		    )
 
+	# Char_cine nul
+	blank = AFFE_CHAR_CINE(MODELE=modL,
+				MECA_IMPO=_F(GROUP_MA='Wd',DX=0.,DY=0.,)
+				)
+					     
 	# Calcul des matrices de rigidité élémentaires
 	matElemL = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modL, CHAM_MATER=MatL)
 
 	# Calcul de la numérotation
-	numDDLL = NUME_DDL(MATR_RIGI=matElemL, );
+	numDDLL = NUME_DDL(MATR_RIGI=matElemL);
 
+	matAssL = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL, CHAR_CINE=blank,)
 	# Calcul du second membre force
 	vecElemL = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=FdL,CHAM_MATER=MatL)
 	vneumL = ASSE_VECTEUR(VECT_ELEM=vecElemL,NUME_DDL=numDDLL)
 
+	# Calcul du second membre cine nul
+	vblank = CALC_CHAR_CINE(NUME_DDL=numDDLL,CHAR_CINE=blank,);
+	
 	# Assemblage de la matrice de rigidité
-	matAssL = ASSE_MATRICE(MATR_ELEM=matElemL, NUME_DDL=numDDLL)
-	#matAssL = FACTORISER(reuse=matAssL,MATR_ASSE=matAssL, METHODE='MUMPS',);
+	
+	matAssL = FACTORISER(reuse=matAssL,MATR_ASSE=matAssL, METHODE='MUMPS',);
+	
 	return matAssL, vneumL, MatL, modL, numDDLL
 
 def create_resu(field,model,mat,char_cine=None):
@@ -194,8 +188,9 @@ def create_resu(field,model,mat,char_cine=None):
     Output:
         -aster result
     """
+    
     if char_cine:
-        resu = CREA_RESU(OPERATION = 'AFFE',
+        o2[AsterIter2] = CREA_RESU(OPERATION = 'AFFE',
                          TYPE_RESU = 'EVOL_ELAS',
                          NOM_CHAM = 'DEPL',
                          EXCIT = _F(CHARGE = char_cine),
@@ -205,7 +200,7 @@ def create_resu(field,model,mat,char_cine=None):
                                    INST = 0.,)
                          )
     else:
-        resu = CREA_RESU(OPERATION = 'AFFE',
+        o2[AsterIter2] = CREA_RESU(OPERATION = 'AFFE',
                      TYPE_RESU = 'EVOL_ELAS',
                      NOM_CHAM = 'DEPL',
                      AFFE = _F(CHAM_GD = field,
@@ -217,7 +212,7 @@ def create_resu(field,model,mat,char_cine=None):
     return resu
 
 
-def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=None):
+def compute_nodal_reaction_from_field_on_group(field,model,mat,group,charg,char_cine=None):
     """
     Compute nodal reaction from a displacement field on a specific group.
     Input:
@@ -230,28 +225,49 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,char_cine=N
         -asterField instance
     """
     ### Create result concept from the displacement field
-    resu = create_resu(field,model,mat,char_cine)
+    #resu = create_resu(field,model,mat,char_cine)
 
-    resu= CALC_CHAMP(reuse = resu,
-                     FORCE = 'REAC_NODA',
-                     #TOUT='OUI',
-                     GROUP_MA = group, # SUR JUSTE FD OU WD => REAC_NODA pas possible
+    if char_cine:
+        resu =CREA_RESU(OPERATION = 'AFFE',
+                         TYPE_RESU = 'EVOL_ELAS',
+                         NOM_CHAM = 'DEPL',
+                         EXCIT = _F(CHARGE = charg),
+                         AFFE = _F(CHAM_GD = field,
+                                   MODELE = model,
+                                   CHAM_MATER = mat,
+                                   INST = 0.,)
+                         )
+    else:
+        resu= CREA_RESU(OPERATION = 'AFFE',
+                     TYPE_RESU = 'EVOL_ELAS',
+                     NOM_CHAM = 'DEPL',
+                     AFFE = _F(CHAM_GD = field,
+                               MODELE = model,
+                               CHAM_MATER = mat,
+                               INST = 0.,)
+                    )
+    
+    resu = CALC_CHAMP(FORCE = 'REAC_NODA',
+                     reuse = resu,
+                     MODELE=model,
+                     CHAM_MATER=mat,
+                     EXCIT=_F(CHARGE=charg),
+                     TOUT='OUI',
                      RESULTAT = resu,
-                     INST=0.)
-
-    toto = CREA_CHAMP(OPERATION = 'EXTR',
+                    )
+    AsterIter = AsterCount.__next__()
+    o[AsterIter] = CREA_CHAMP(OPERATION = 'EXTR',
                                 NOM_CHAM = 'REAC_NODA',
                                 TYPE_CHAM = 'NOEU_DEPL_R',
                                 RESULTAT = resu,
-                                INST=0.
+                                INST=0.,
                                 )
     nodalrea = CREA_CHAMP(OPERATION = 'ASSE',
                                 TYPE_CHAM = 'NOEU_DEPL_R',
                                 MODELE = model,
-                                ASSE = _F(CHAM_GD = toto,GROUP_MA = group),
+                                ASSE = _F(CHAM_GD = o[AsterIter] ,GROUP_MA = group),
                                 )
     
-    DETRUIRE(CONCEPT=_F(NOM=resu))
-    return toto
-    #return toto.EXTR_COMP().valeurs
+    DETRUIRE(CONCEPT=(_F(NOM=nodalrea),_F(NOM=resu)))
+    return o[AsterIter]
 	
