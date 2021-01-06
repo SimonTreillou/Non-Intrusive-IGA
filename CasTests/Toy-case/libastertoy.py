@@ -36,7 +36,7 @@ AsterCount2 = iter(range(AsterDim))
 
 
 
-def Global(E=100000.,Nu=0.3,fx=5.,fy=0.):
+def Global(E=100000.,Nu=0.,fx=5.,fy=0.):
 
 	### Lecture du maillage
 	asMeshG = LIRE_MAILLAGE(FORMAT = 'MED', 
@@ -119,7 +119,7 @@ def Global(E=100000.,Nu=0.3,fx=5.,fy=0.):
 
 	
 	
-def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
+def Local(E=50000.,Nu=0.,fx=0.,fy=0.):
 	### Lecture du maillage
 	asMeshL = LIRE_MAILLAGE(FORMAT = 'MED',
 		   UNITE = 21,                           # Unité logique du fichier de maillage

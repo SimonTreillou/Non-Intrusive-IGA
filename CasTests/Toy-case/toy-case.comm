@@ -6,6 +6,7 @@ from numpy import linalg
 import scipy.sparse as sp
 import scipy.sparse.linalg as splalg
 import sys
+import pdb
 sys.path.insert( 0, '/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case')
 import libastertoy as la
 
@@ -23,9 +24,9 @@ DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
 ## INITIALISATION : KG, KL, conditions de Dirichlet, FG, FL..
 ########################################################################################################
 
-KG, vciG, vneG, MatG, modG, numDDLG, KGP  = la.Global()
+KG, vciG, vneG, MatG, modG, numDDLG, KGP  = la.Global(Nu=0.)
 
-KL, vneL, matL, modL,numDDLL  = la.Local()
+KL, vneL, matL, modL,numDDLL  = la.Local(Nu=0.)
 
 ########################################################################################################
 ########################################################################################################
@@ -36,7 +37,7 @@ dimA = 2 # Dimension du problème
 ### Affectation des modèles
 modA = AFFE_MODELE(MAILLAGE = asMeshG,
 		  AFFE = (
-			  _F(TOUT='OUI',				# Modèle de la structure
+			  _F(GROUP_MA='Auxi',				# Modèle de la structure
 			    PHENOMENE = 'MECANIQUE',
 			    MODELISATION = 'C_PLAN',
 			    ),
@@ -45,111 +46,35 @@ modA = AFFE_MODELE(MAILLAGE = asMeshG,
 
 ### Définition des matériaux
 matA = DEFI_MATERIAU(ELAS= _F(E = 100000.,
-				NU = 0.3,
+				NU = 0.,
 			       ),			
 				)
 
 ### Affectation des matériaux
 MatA  = AFFE_MATERIAU(MAILLAGE = asMeshG,
-		     AFFE = (_F(TOUT='OUI',
+		     AFFE = (_F(GROUP_MA='Auxi',
 			       MATER = matA,
 			       ),
 			     ),
 			     )
 
-### Affectation des conditions limites
-# Encastrement
-# GROUP_MA => group of edges
-FixA = AFFE_CHAR_CINE(MODELE = modG,
-		     MECA_IMPO = (_F(GROUP_MA = 'Wd',
-				    DX = 0., DY = 0.
-				    ),
-				   _F(GROUP_MA = 'Fd',
-				    DX = 0., DY = 0.
-				    ), 
-				  )
-		     )
-
 # Calcul des matrices de rigidité élémentaires
-matElemA = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modG, CHAM_MATER=MatG)
+matElemA = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modA, CHAM_MATER=MatA)
 
 # Calcul de la numérotation
 numDDLA = NUME_DDL(MATR_RIGI=matElemA, );
 
 # Assemblage de la matrice de rigidité
-matAssA = ASSE_MATRICE(MATR_ELEM=matElemA, NUME_DDL=numDDLA, CHAR_CINE=FixA)
+matAssA = ASSE_MATRICE(MATR_ELEM=matElemA, NUME_DDL=numDDLA)
 
 # Factorisation de la matrice de rigidité et prise en compte des CL de 
 # Dirichlet éliminées
-matAssA = FACTORISER(reuse=matAssA,MATR_ASSE=matAssA, METHODE='MUMPS',);
+#matAssA = FACTORISER(reuse=matAssA,MATR_ASSE=matAssA, METHODE='MUMPS',);
 
-matAssPA = matAssA.EXTR_MATR(sparse='True')
-matAssPA = sp.coo_matrix((matAssPA[0],(matAssPA[1],matAssPA[2])),shape=(2*nbNoeudA,2*nbNoeudA)).tocsc()
+#matAssPA = matAssA.EXTR_MATR(sparse='True')
+#matAssPA = sp.coo_matrix((matAssPA[0],(matAssPA[1],matAssPA[2])),shape=(2*nbNoeudA,2*nbNoeudA)).tocsc()
 	
-	
-########################################################################################################
-########################################################################################################
-# Nombre de noeuds physiques du maillage
-nbNoeudC = asMeshG.sdj.DIME.get()[0]
-dimC = 2 # Dimension du problème
 
-### Affectation des modèles
-modC = AFFE_MODELE(MAILLAGE = asMeshG,
-		  AFFE = (
-			  _F(GROUP_MA='Compl',				# Modèle de la structure
-			    PHENOMENE = 'MECANIQUE',
-			    MODELISATION = 'C_PLAN',
-			    ),
-			  )
-			  )
-
-### Définition des matériaux
-matC = DEFI_MATERIAU(ELAS= _F(E = 100000.,
-				NU = 0.3,
-			       ),			
-				)
-
-### Affectation des matériaux
-MatC  = AFFE_MATERIAU(MAILLAGE = asMeshG,
-		     AFFE = (_F(TOUT='OUI',
-			       MATER = matC,
-			       ),
-			     ),
-			     )
-
-### Affectation des conditions limites
-# Encastrement
-# GROUP_MA => group of edges
-FixC = AFFE_CHAR_CINE(MODELE = modG,
-		     MECA_IMPO = (_F(GROUP_MA = 'Auxi',
-				    DX = 0., DY = 0.
-				    ),
-				   _F(GROUP_MA = 'Wd',
-				    DX=0., DY = 0.)
-				  )
-		     )
-
-# Calcul des matrices de rigidité élémentaires
-matElemC = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modG, CHAM_MATER=MatG)
-
-# Calcul de la numérotation
-numDDLC = NUME_DDL(MATR_RIGI=matElemC, );
-
-# Assemblage de la matrice de rigidité
-matAssC = ASSE_MATRICE(MATR_ELEM=matElemC, NUME_DDL=numDDLG, CHAR_CINE=FixC)
-
-# Calcul du second membre lié aux CL de Dirichlet
-vcineC = CALC_CHAR_CINE(NUME_DDL=numDDLG, CHAR_CINE=FixC,);
-
-
-# Factorisation de la matrice de rigidité et prise en compte des CL de 
-# Dirichlet éliminées
-matAssC = FACTORISER(reuse=matAssC,MATR_ASSE=matAssC, METHODE='MUMPS',);
-
-matAssPC = matAssC.EXTR_MATR(sparse='True')
-matAssPC = sp.coo_matrix((matAssPC[0],(matAssPC[1],matAssPC[2])),shape=(2*nbNoeudC,2*nbNoeudC)).tocsc()	
-########################################################################################################
-########################################################################################################
 
 ########################################################################################################
 ## PREMIERE ITERATION
@@ -195,6 +120,7 @@ vciL= CALC_CHAR_CINE(NUME_DDL=numDDLL, CHAR_CINE=UGL,);
 #vneumL2 = ASSE_VECTEUR(VECT_ELEM=vecElmL2,NUME_DDL=numDDLL)
 # On résoud avec ces nouvelles conditions
 UL = RESOUDRE(MATR=matAssL, CHAM_NO=vneumL,CHAM_CINE=vciL,)
+
 # Cependant attention, on a pas fait avec dualisation lagrangienne donc UL != [UL, Lambda] 
 # mais c'est censé passer avec le compute_nodal_reaction etc
 
@@ -296,9 +222,11 @@ KAUG2 = PROD_MATR_CHAM(MATR_ASSE=matAssA,CHAM_NO=UG)
 
 matAssAP = matAssA.EXTR_MATR(sparse='True')
 nbNoeudA=asMeshG.sdj.DIME.get()[0]
-matAssAP = sp.coo_matrix((matAssAP[0],(matAssAP[1],matAssAP[2])),shape=(2*nbNoeudA,2*nbNoeudA)).tocsc()	
-np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/KA.npy',matAssPA.toarray())
-np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/KC.npy',matAssPC.toarray())
+#matAssAP = sp.coo_matrix((matAssAP[0],(matAssAP[1],matAssAP[2])),shape=(2*nbNoeudA,2*nbNoeudA)).tocsc()	
+#np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/KA.npy',matAssPA.toarray())
+#np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/KC.npy',matAssPC.toarray())
+
+
 KAUG2R =CREA_RESU(OPERATION = 'AFFE',
                TYPE_RESU = 'EVOL_ELAS',
                NOM_CHAM = 'DEPL',
@@ -306,16 +234,19 @@ KAUG2R =CREA_RESU(OPERATION = 'AFFE',
                          MODELE = modA,
                          CHAM_MATER = MatA,
                          INST = 0.,)
-              )     
+              )  
+              
+KAUG23=PROJ_CHAMP(RESULTAT=KAUG2R, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+               VIS_A_VIS=_F(TOUT_1='OUI',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))                   
 KAUG2G=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
                VIS_A_VIS=_F(GROUP_MA_1='Auxi',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))                                
 KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
                   NOM_CHAM = 'DEPL',
                   TYPE_CHAM = 'NOEU_DEPL_R',
-                  RESULTAT = KAUG2G,
+                  RESULTAT = KAUG23,
                   INST=0.,
                   )   
-DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G))  )  
+
 
 
 print(KAUG2C.EXTR_COMP().valeurs)
@@ -325,34 +256,34 @@ total = CREA_CHAMP(OPERATION='COMB',
 		    	  _F(CHAM_GD=LAMBDACH,COEF_R=-1.),
 		    	  _F(CHAM_GD=vneumG,COEF_R=1.),)
 		   )
-		   
+	   
 matAssPython = KG.EXTR_MATR(sparse='True')
 nbNoeudG=asMeshG.sdj.DIME.get()[0]
 matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeudG,2*nbNoeudG)).tocsc()		   
-print("KG : ", type(matAssPython))
-print("KG : ", matAssPython.toarray())
+#print("KG : ", type(matAssPython))
+#print("KG : ", matAssPython.toarray())
 np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/KG.npy',matAssPython.toarray())
 np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/FG.npy',vneumG.EXTR_COMP().valeurs)
 np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/LAMBDA.npy',LAMBDACH.EXTR_COMP().valeurs)
 np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/KAUG.npy',KAUG2C.EXTR_COMP().valeurs)
 np.save('/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/Toy-case/UG.npy',UG.EXTR_COMP().valeurs)
-print("\nFG : ")		       
-print(vneumG.EXTR_COMP().valeurs)
-print("\nLAMBDA : ")		       
-print(LAMBDACH.EXTR_COMP().valeurs)		       
+#print("\nFG : ")		       
+#print(vneumG.EXTR_COMP().valeurs)
+#print("\nLAMBDA : ")		       
+#print(LAMBDACH.EXTR_COMP().valeurs)		       
 print("\nKAUG : ")		       
 print(KAUG2C.EXTR_COMP().valeurs)
-print("\nTOTAL ASTER : ")	       	       
-print(total.EXTR_COMP().valeurs)	
+#print("\nTOTAL ASTER : ")	       	       
+#print(total.EXTR_COMP().valeurs)	
 
-print("\nTOTAL PYTHON : ")		       
-print(vneumG.EXTR_COMP().valeurs+KAUG.EXTR_COMP().valeurs-LAMBDACH.EXTR_COMP().valeurs)    
+#print("\nTOTAL PYTHON : ")		       
+#print(vneumG.EXTR_COMP().valeurs+KAUG.EXTR_COMP().valeurs-LAMBDACH.EXTR_COMP().valeurs)    
 		
 totalG = AFFE_CHAR_MECA(MODELE = modG,	
 		        CHAMNO_IMPO = _F(CHAM_NO = total,
 		  	     		COEF_IMPO = 1.,)
 		        )
-DETRUIRE(CONCEPT=(_F(NOM=KAUG2),_F(NOM=KAUG2C)))
+DETRUIRE(CONCEPT=_F(NOM=KAUG2)) 
 #matElmG2 = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modG, CHAM_MATER=MatG,CHARGE=KaugG)
 
 #numDDLG2 = NUME_DDL(MATR_RIGI=matElmG2, );
@@ -514,8 +445,10 @@ for ifp in range(1,10):
 
     KAUG1=PROJ_CHAMP(RESULTAT=UGR, MODELE_1=modG,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
                        VIS_A_VIS=_F(GROUP_MA_1='Auxi',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))   
-                       
-                       
+    
+                     
+    KAUG2 = PROD_MATR_CHAM(MATR_ASSE=matAssA,CHAM_NO=UG)  
+                    
     KAUG = CREA_CHAMP(OPERATION = 'EXTR',
                           NOM_CHAM = 'REAC_NODA',
                           TYPE_CHAM = 'NOEU_DEPL_R',
@@ -532,46 +465,46 @@ for ifp in range(1,10):
     #KAUG2 = PROD_MATR_CHAM(MATR_ASSE=matAssA,CHAM_NO=UG)
     #KAUGG=PROJ_CHAMP(CHAM_GD=KAUG2, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',
     #                 VIS_A_VIS=_F(TOUT_1='OUI',TOUT_2='OUI', CAS_FIGURE='2D'))   
-                     
-    #KAUG2R =CREA_RESU(OPERATION = 'AFFE',
-    #                   TYPE_RESU = 'EVOL_ELAS',
-    #                   NOM_CHAM = 'DEPL',
-    #                   AFFE = _F(CHAM_GD = KAUG2,
-    #                             MODELE = modA,
-    #                             CHAM_MATER = MatA,
-    #                             INST = 0.,)
-    #                  )     
-    #KAUG2G=PROJ_CHAMP(RESULTAT=KAUG2R, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
-    #                   VIS_A_VIS=_F(TOUT_1='OUI',TOUT_2='OUI', CAS_FIGURE='2D'))                                
-    #KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
-    #                      NOM_CHAM = 'DEPL',
-    #                      TYPE_CHAM = 'NOEU_DEPL_R',
-    #                      RESULTAT = KAUG2G,
-    #                      INST=0.,
-    #                      )   
-    #DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G))  )                                   
+    DETRUIRE(CONCEPT=(_F(NOM=KAUG2R),_F(NOM=KAUG2G),_F(NOM=KAUG2C)))                   
+    KAUG2R =CREA_RESU(OPERATION = 'AFFE',
+                       TYPE_RESU = 'EVOL_ELAS',
+                       NOM_CHAM = 'DEPL',
+                       AFFE = _F(CHAM_GD = KAUG2,
+                                 MODELE = modA,
+                                 CHAM_MATER = MatA,
+                                 INST = 0.,)
+                      )     
+    KAUG2G=PROJ_CHAMP(RESULTAT=KAUG2R, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+                       VIS_A_VIS=_F(TOUT_1='OUI',GROUP_MA_2='Auxi', CAS_FIGURE='2D'))                                
+    KAUG2C = CREA_CHAMP(OPERATION = 'EXTR',
+                          NOM_CHAM = 'DEPL',
+                          TYPE_CHAM = 'NOEU_DEPL_R',
+                          RESULTAT = KAUG2G,
+                          INST=0.,
+                          )   
+                                    
 
     
     
     DETRUIRE(CONCEPT=_F(NOM=total))  
     total = CREA_CHAMP(OPERATION='COMB',
 	    	        TYPE_CHAM='NOEU_DEPL_R',
-		        COMB=(_F(CHAM_GD=KAUG,COEF_R=1.),
+		        COMB=(_F(CHAM_GD=KAUG2C,COEF_R=1.),
 		              _F(CHAM_GD=LAMBDACH,COEF_R=-1.),
 		    	      _F(CHAM_GD=vneumG,COEF_R=1.)
 		    	      )
 		       )
-    print("\nFG : ")		       
-    print(vneumG.EXTR_COMP().valeurs)
-    print("\nLAMBDA : ")		       
-    print(LAMBDACH.EXTR_COMP().valeurs)		       
+    #print("\nFG : ")		       
+    #print(vneumG.EXTR_COMP().valeurs)
+    #print("\nLAMBDA : ")		       
+    #print(LAMBDACH.EXTR_COMP().valeurs)		       
     print("\nKAUG : ")		       
     print(KAUG.EXTR_COMP().valeurs)
-    print("\nTOTAL ASTER : ")	       	       
-    print(total.EXTR_COMP().valeurs)	
-    
-    print("\nTOTAL PYTHON : ")		       
-    print(vneumG.EXTR_COMP().valeurs+KAUG.EXTR_COMP().valeurs-LAMBDACH.EXTR_COMP().valeurs)       
+    #print("\nTOTAL ASTER : ")	       	       
+    #print(total.EXTR_COMP().valeurs)	
+    #DETRUIRE(CONCEPT=_F(NOM=KAUG2))  
+    #print("\nTOTAL PYTHON : ")		       
+    #print(vneumG.EXTR_COMP().valeurs+KAUG.EXTR_COMP().valeurs-LAMBDACH.EXTR_COMP().valeurs)       
     #DETRUIRE(CONCEPT=_F(NOM=KAUGG))
     DETRUIRE(CONCEPT=(_F(NOM=totalG)))	       
     totalG = AFFE_CHAR_MECA(MODELE = modG,	
@@ -585,8 +518,8 @@ for ifp in range(1,10):
                    )
     r = R.EXTR_COMP().valeurs
     normr.append(np.linalg.norm(r))
-    DETRUIRE(CONCEPT=(_F(NOM=R),_F(NOM=total0)))
-    #DETRUIRE(CONCEPT=(_F(NOM=KAUG2),_F(NOM=KAUG2C)))
+    DETRUIRE(CONCEPT=(_F(NOM=R),_F(NOM=total0),_F(NOM=KAUG2)))
+
   #  DETRUIRE(CONCEPT=_F(NOM=toto))
   #  DETRUIRE(CONCEPT=_F(NOM=nodalrea))
     ####################################################################################################
@@ -636,7 +569,7 @@ ResG=CALC_CHAMP(reuse =ResG,
                RESULTAT=ResG,
                CRITERES='SIEQ_NOEU',);
 # Sauvegarde au format med
-IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=ResG))
+IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=ResG,GROUP_MA='Compl'))
    
 # Création du concept de résultat
 ResL = CREA_RESU(OPERATION = 'AFFE',
@@ -669,31 +602,5 @@ ResL=CALC_CHAMP(reuse =ResL,
                CRITERES='SIEQ_NOEU',);			         
 # Sauvegarde au format med
 IMPR_RESU(FORMAT = 'MED',UNITE=81,RESU=_F(RESULTAT=ResL))
-
-    
-    #LAM = RESOUDRE(MATR=KL,)
-    #Ka = la.compute_nodal_reaction_from_field_on_group(UG,G,mat) 
-    #FGG = FG -LAMB + Ka
-    #vecElem = CALC_VECT_ELEM(OPTION='CHAR_MECA',CHARGE=Fd,CHAM_MATER=Mat)
-    
-    #vneum = ASSE_VECTEUR(VECT_ELEM=vecElem,NUME_DDL=numDDL)
-
-    #sol = RESOUDRE(MATR=KG, CHAM_NO=vneum, CHAM_CINE=vcine,)
-    ### GLOBAL
-    #FGG = FG #- ...
-    #UG=KGLU.solve(FGG)
-    #FG=F - CG.T.dot(LAM) + KG.dot(UGold)
-    #UG[rep]=IGALU.solve(FG[rep])
-
-       # err=np.r_[err,np.linalg.norm(UG-UGold)/np.linalg.norm(UG)]
-
-    ### LOCAL
-    #FL=np.zeros(mf.ndof+ndof_interf)
-    #FL[mf.ndof:]=-CG.dot(UG)
-    #UL=EFLU.solve(FL)
-    #LAM=UL[mf.ndof:]
-    #print(np.linalg.norm(UL[:mf.ndof]))
-    #mf.VTKSol('marie_loc',UL[:mf.ndof])
-    #UGold=UG.copy()
 
 FIN();

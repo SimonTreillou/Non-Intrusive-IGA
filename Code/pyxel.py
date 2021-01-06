@@ -90,6 +90,35 @@ class Mesh:
         self.wdetJ = []
         self.dim=dim
         
+    def SaveMeshGMSH(self,fileMesh,format='2.2'):
+        with open(fileMesh,'a') as file:
+            if format=='2.2':
+                file.write('$MeshFormat\n')
+                file.write('2.2 0 8\n')
+                file.write('$EndMeshFormat\n')
+                file.write('$Nodes\n')
+                file.write(str(self.n.shape[0])+'\n')
+                ### Format
+                ### N x y z
+                if self.n.shape[1] == 2:
+                    for nodes in range(self.n.shape[0]):
+                        file.write('{} {} {} 0.0\n'.format(nodes+1,self.n[nodes,0],self.n[nodes,1]))
+                elif self.n.shape[1] == 3:
+                    for nodes in range(self.n.shape[0]):
+                        file.write('{} {} {} {}\n'.format(nodes+1,self.n[nodes,0],self.n[nodes,1],self.n[nodes,2]))
+                file.write('$EndNodes\n')
+                file.write('$Elements\n')
+                file.write(str(len(self.e))+'\n')
+                ### Format
+                ### Ne Type 2 0 n1 n2 ...
+                for elem in range(len(self.e)):
+                    line = '{} {} 0'.format(elem+1,self.e[elem][0])
+                    for nn in self.e[elem][1:]:
+                        line += ' {}'.format(nn+1)
+                    line += '\n'
+                    file.write(line)
+                file.write('$EndElements\n')
+        
     def Copy(self):
         m=Mesh(self.e.copy(),self.n.copy())
         m.conn=self.conn.copy()
