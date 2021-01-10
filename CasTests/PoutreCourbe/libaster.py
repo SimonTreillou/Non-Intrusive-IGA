@@ -107,9 +107,45 @@ def Global(E=100000.,Nu=0.3,fx=0.,fy=100.):
 
 	# Factorisation de la matrice de rigidité et prise en compte des CL de 
 	# Dirichlet éliminées
-	matAssG = FACTORISER(reuse=matAssG,MATR_ASSE=matAssG, METHODE='MUMPS',);
+	matAssG = FACTORISER(reuse=matAssG,MATR_ASSE=matAssG, METHODE='MUMPS',)
+	
+	
+	### Affectation des modèles
+	modA = AFFE_MODELE(MAILLAGE = asMeshG,
+			  AFFE = (
+				  _F(GROUP_MA='AuxiG',				# Modèle de la structure
+				    PHENOMENE = 'MECANIQUE',
+				    MODELISATION = 'C_PLAN',
+				    ),
+				  )
+				  )
 
-	return matAssG, vcineG, vneumG, MatG, modG, numDDLG  
+	### Définition des matériaux
+	matA = DEFI_MATERIAU(ELAS= _F(E = 100000.,
+			              NU = 0.3,
+			              ),            
+			     )
+
+	### Affectation des matériaux
+	MatA  = AFFE_MATERIAU(MAILLAGE = asMeshG,
+			      AFFE = (_F(GROUP_MA = 'AuxiG',
+			                 MATER = matA,
+			                ),
+			             ),
+			     )
+
+	# Calcul des matrices de rigidité élémentaires
+	matElemA = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modA, CHAM_MATER=MatA)
+
+	# Calcul de la numérotation
+	numDDLA = NUME_DDL(MATR_RIGI=matElemA, );
+
+	# Assemblage de la matrice de rigidité
+	matAssA = ASSE_MATRICE(MATR_ELEM=matElemA, NUME_DDL=numDDLA)#, CHAR_CINE=FixA)
+
+	matAssPython = matAssG.EXTR_MATR(sparse='True')
+	matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeudG,2*nbNoeudG)).tocsc()
+	return matAssG, matAssA, vcineG, vneumG, MatG, modG, numDDLG, matAssPython
 	
 	
 def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
@@ -174,9 +210,58 @@ def Local(E=100000.,Nu=0.3,fx=0.,fy=0.):
 	# Assemblage de la matrice de rigidité
 	
 	matAssL = FACTORISER(reuse=matAssL,MATR_ASSE=matAssL, METHODE='MUMPS',);
+	matAssPython = matAssL.EXTR_MATR(sparse='True')
+	matAssPython = sp.coo_matrix((matAssPython[0],(matAssPython[1],matAssPython[2])),shape=(2*nbNoeudL,2*nbNoeudL)).tocsc()
 	
-	return matAssL, vneumL, MatL, modL, numDDLL
+	return matAssL, vneumL, MatL, modL, numDDLL, matAssPython
 
+
+def Auxi(E=100000.,Nu=0.3,fx=0.,fy=0.):
+
+	### Lecture du maillage
+	asMeshA = LIRE_MAILLAGE(FORMAT = 'MED', 
+			       UNITE = 20,						# Unité logique du fichier de maillage
+			       NOM_MED = 'global',					# Nom du maillage au sein du fichier
+			       INFO = 1,
+			       )
+	# Nombre de noeuds physiques du maillage
+	nbNoeudA = asMeshA.sdj.DIME.get()[0]
+	dimA = 2 # Dimension du problème
+
+	### Affectation des modèles
+	modA = AFFE_MODELE(MAILLAGE = asMeshG,
+			  AFFE = (
+				  _F(GROUP_MA='AuxiG',				# Modèle de la structure
+				    PHENOMENE = 'MECANIQUE',
+				    MODELISATION = 'C_PLAN',
+				    ),
+				  )
+				  )
+
+	### Définition des matériaux
+	matA = DEFI_MATERIAU(ELAS= _F(E = 100000.,
+			              NU = 0.3,
+			              ),            
+			     )
+
+	### Affectation des matériaux
+	MatA  = AFFE_MATERIAU(MAILLAGE = asMeshG,
+			      AFFE = (_F(GROUP_MA = 'AuxiG',
+			                 MATER = matA,
+			                ),
+			             ),
+			     )
+
+	# Calcul des matrices de rigidité élémentaires
+	matElemA = CALC_MATR_ELEM(OPTION='RIGI_MECA', MODELE=modA, CHAM_MATER=MatA)
+
+	# Calcul de la numérotation
+	numDDLA = NUME_DDL(MATR_RIGI=matElemA, );
+
+	# Assemblage de la matrice de rigidité
+	matAssA = ASSE_MATRICE(MATR_ELEM=matElemA, NUME_DDL=numDDLA)#, CHAR_CINE=FixA)
+	return matAssA
+	
 def create_resu(field,model,mat,char_cine=None):
     """
     Create an aster concept of results from an aster field obtained by a solve.
