@@ -1,0 +1,338 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+########################################################################################################
+# !!! A remplir : chemin d'acces du dossier Git !!!
+########################################################################################################
+path = '/media/treillou/Data/Scolarite/INSA/5A/Projet/Non-Intrusive-IGA/CasTests/PoutreCourbe'
+
+import numpy as np
+from numpy import linalg
+import scipy.sparse as sp
+import scipy.sparse.linalg as splalg
+import sys
+sys.path.insert( 0, path)
+import libaster as la
+import time
+import pdb
+
+## DEBUT CODE ASTER
+DEBUT(PAR_LOT='NON',IMPR_MACRO = 'NON')
+start = time.time()
+
+########################################################################################################
+## INITIALISATION : KG, KL, KA, conditions de Dirichlet, FG, FL.. et matrices de projection
+########################################################################################################
+KG, KA, vciG, FG, MatG, modG, numDDLG, KGP  = la.Global(fy=10000.)
+KL, vneL, matL, modL,numDDLL, KLP  = la.Local()
+
+# Matrice de projection interface global->local	
+MATPROJU=PROJ_CHAMP(MODELE_1=modG,MODELE_2=modL,METHODE='COLLOCATION',PROJECTION='NON',
+                VIS_A_VIS=_F(GROUP_MA_1='Auxi',GROUP_MA_2='Wd', CAS_FIGURE='1.5D'))	
+
+# Matrice de projection interface local->global                
+MATPROJL = PROJ_CHAMP(MODELE_1=modL,MODELE_2=modG,METHODE='COLLOCATION',PROJECTION='NON', 
+		      VIS_A_VIS=_F(GROUP_MA_1='Wd',GROUP_MA_2='Auxi', CAS_FIGURE='1.5D'))  
+
+# Initialisation du membre de droite du problème global : KAUG = LAMBDA = 0
+total = CREA_CHAMP(OPERATION='COMB',
+		    TYPE_CHAM='NOEU_DEPL_R',
+		    COMB=(_F(CHAM_GD=vneumG,COEF_R=1.),)
+		   )
+		   
+# Création des concepts Aster de UG et UL pour sauvegarder à la fin
+UG    = CREA_CHAMP(OPERATION='COMB',
+		   TYPE_CHAM='NOEU_DEPL_R',
+		   COMB=(_F(CHAM_GD=vneumG,COEF_R=1.),)
+		   )
+UL    = CREA_CHAMP(OPERATION='COMB',
+		   TYPE_CHAM='NOEU_DEPL_R',
+		   COMB=(_F(CHAM_GD=vneumG,COEF_R=1.),)
+		   )
+
+KGPLU = splalg.splu(KGP)
+
+#test = KGPLU.solve(UG.EXTR_COMP().valeurs)
+totalP = total.EXTR_COMP().valeurs
+# Liste de la norme des résidus		  		   		   
+normr = list()
+err = []
+UGold = (UG.EXTR_COMP().valeurs)*0
+
+#pdb.set_trace()
+(Draf,Dl,n,e)=np.load(path+'/NPY/poutrecourbe.npy',allow_pickle=True)
+(Dl,n,e)=np.load(path+'/NPY/poutrecourbeQ9.npy',allow_pickle=True)
+Dl=sp.csc_matrix(Dl)
+DDLL=sp.bmat([[Dl  , None], \
+                     [None, Dl  ]])
+
+
+
+topo = UG.EXTR_COMP(topo=1).noeud # Numéro des noeux associés aux degrés de liberté
+NO = ['N{}'.format(ii) for ii in sorted(list(set(list(topo))))] # Liste de noeuds
+dim=2
+
+	
+#Dlt = DDLL.dot(AA)
+
+DDLL = la.renum(DDLL)
+#ndofiga,ndofef = Dl.shape
+#renumef = np.arange(dim*ndofiga).reshape((dim,ndofiga)).T.ravel() # Pour le réarrangement des ddls
+#renumiga = np.arange(dim*ndofef).reshape((dim,ndofef)).T.ravel() # Pour le réarrangement des ddls
+#D = DDLL.toarray()
+#D = D[np.ix_(renumef,renumiga)]
+#D = DDLL.toarray()
+#D = DDLL.toarray()
+#for i in range(DDLL.shape[1]):
+#    D[:,i] = D[renum,i]
+#DDLL = sp.coo_matrix(D)
+
+KGPIGA = (DDLL@KGP)@DDLL.T
+KGPIGALU = splalg.splu(KGPIGA)
+UGold = UGold@DDLL.T
+########################################################################################################
+# On commence les itérations
+########################################################################################################
+
+for ifp in range(1,100):             
+    print(f"iter # {ifp}")
+    ####################################################################################################
+    # Résolution global
+    ####################################################################################################
+    
+    DETRUIRE(CONCEPT=_F(NOM=UG))
+    #UG = RESOUDRE(MATR=KG, CHAM_NO=total, CHAM_CINE=vciG,)
+    UGPIGA = KGPIGALU.solve(DDLL@totalP)
+    UGPFE = DDLL.T@UGPIGA
+    
+    
+    #print(np.mean(UGPIGA))
+    #print(np.mean(UGPFE),'\n')
+    
+    table = CREA_TABLE(LISTE=(_F(LISTE_K = NO,PARA='NOEUD'),
+                          _F(LISTE_R = UGPFE[range(0,dim * len(NO),2)],PARA='DX'),
+                          _F(LISTE_R = UGPFE[range(1,dim * len(NO),2)],PARA='DY'),
+                          )
+                    )
+    
+    UG = CREA_CHAMP(TYPE_CHAM = 'NOEU_DEPL_R',
+                      OPERATION = 'EXTR',
+                      TABLE = table,
+                      MAILLAGE = asMeshG)
+    DETRUIRE(CONCEPT=_F(NOM=table))   
+    print(np.mean(UG.EXTR_COMP().valeurs))              
+    ####################################################################################################
+    # Extraction -CG*UG
+    ####################################################################################################
+    
+    # On crée UG sous forme de résultat
+    
+    UGR = CREA_RESU(OPERATION = 'AFFE',
+		    TYPE_RESU = 'EVOL_ELAS',
+		    NOM_CHAM = 'DEPL',
+		    AFFE = _F(CHAM_GD = UG,
+		              MODELE=modG,
+		              CHAM_MATER=MatG,
+		              INST = 0.
+		             )
+		    )
+    
+    # On projette ce résultat sur la frontière (Diri) => on a un evol	
+        
+    UIMP = PROJ_CHAMP(RESULTAT=UGR, MATR_PROJECTION=MATPROJU)  
+    
+    # On impose ce evol en condition de Dirichlet cinématique
+    
+    
+    UGL=AFFE_CHAR_CINE(MODELE=modL, EVOL_IMPO=UIMP,)
+    vciL= CALC_CHAR_CINE(NUME_DDL=numDDLL, CHAR_CINE=UGL,)
+    DETRUIRE(CONCEPT=_F(NOM=UIMP)) 
+    ####################################################################################################
+    # Résolution local avec déplacement imposé
+    ####################################################################################################
+    
+    # On résoud avec ces nouvelles conditions
+    DETRUIRE(CONCEPT=_F(NOM=UL))
+    UL = RESOUDRE(MATR=matAssL, CHAM_NO=vneumL,CHAM_CINE=vciL,)
+    DETRUIRE(CONCEPT=_F(NOM=vciL))
+    ####################################################################################################
+    # Extraction réaction nodale
+    ####################################################################################################
+    
+    # On recalcule les réactions nodales à l'interface local->global
+    
+    
+    LAMBDAR =CREA_RESU(OPERATION = 'AFFE',
+                       TYPE_RESU = 'EVOL_ELAS',
+                       NOM_CHAM = 'DEPL',
+                       EXCIT = _F(CHARGE = UGL),
+                       AFFE = _F(CHAM_GD = UL,
+                                 MODELE = modL,
+                                 CHAM_MATER = matL,
+                                 INST = 0.,)
+                      )
+                      
+    LAMBDAR = CALC_CHAMP(FORCE = 'REAC_NODA',
+                         reuse = LAMBDAR,
+                         MODELE=modL,
+                         CHAM_MATER=MatL,
+                         EXCIT=_F(CHARGE=UGL,),
+                         TOUT='OUI',
+                         RESULTAT = LAMBDAR,
+                        )
+
+    LAMBDAG  = PROJ_CHAMP(RESULTAT=LAMBDAR, MATR_PROJECTION=MATPROJL,PROL_ZERO='OUI',NUME_DDL=numDDLG)		                                                                         
+    
+    LAMBDACH = CREA_CHAMP(OPERATION = 'EXTR',
+                          NOM_CHAM = 'REAC_NODA',
+                          TYPE_CHAM = 'NOEU_DEPL_R',
+                          RESULTAT = LAMBDAG,
+                          INST=0.,
+                          )           
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDAR))
+    DETRUIRE(CONCEPT=_F(NOM=LAMBDAG))
+    ####################################################################################################
+    # Extraction KA*UG
+    ####################################################################################################
+    
+    # UG = pythonIGA => pythonFEM => aster
+    
+    # On calcule KA*UG
+    KAUG = PROD_MATR_CHAM(MATR_ASSE=matAssA,CHAM_NO=UG)
+    
+    # On projette ce résultat sur le modèle global : Resultat => Projection => Champ
+    KAUGR = CREA_RESU(OPERATION = 'AFFE',
+                        TYPE_RESU = 'EVOL_ELAS',
+                        NOM_CHAM = 'DEPL',
+                        AFFE = _F(CHAM_GD = KAUG,
+                                   MODELE = modA,
+                                   CHAM_MATER = MatA,
+                                   INST = 0.,)
+                        ) 
+    KAUGRP=PROJ_CHAMP(RESULTAT=KAUGR, MODELE_1=modA,MODELE_2=modG,METHODE='AUTO',PROL_ZERO='OUI',NUME_DDL=numDDLG,
+               VIS_A_VIS=_F(TOUT_1='OUI',GROUP_MA_2='AuxiG', CAS_FIGURE='2D'))  
+               
+    KAUGCH = CREA_CHAMP(OPERATION = 'EXTR',
+                  NOM_CHAM = 'DEPL',
+                  TYPE_CHAM = 'NOEU_DEPL_R',
+                  RESULTAT = KAUGRP,
+                  INST=0.,
+                  )    
+    ####################################################################################################
+    # Assemblage du champ de force pour la prochaine itération
+    ####################################################################################################
+    
+    total0 = CREA_CHAMP(OPERATION='COMB',
+	    	        TYPE_CHAM='NOEU_DEPL_R',
+		        COMB=(_F(CHAM_GD=total,COEF_R=1.),
+		    	      )
+		       )
+		       
+    DETRUIRE(CONCEPT=_F(NOM=total)) 
+    total = CREA_CHAMP(OPERATION='COMB',
+	    	        TYPE_CHAM='NOEU_DEPL_R',
+		        COMB=(_F(CHAM_GD=KAUGCH,COEF_R=1.),
+		              _F(CHAM_GD=LAMBDACH,COEF_R=-1.),
+		    	      _F(CHAM_GD=FG,COEF_R=1.),)
+		       )
+		       
+    	       
+    totalG = AFFE_CHAR_MECA(MODELE = modG,	
+		        CHAMNO_IMPO = _F(CHAM_NO = total,
+		  	     		COEF_IMPO = 1.,)
+		        )
+    totalP = total.EXTR_COMP().valeurs        
+    ####################################################################################################
+    # Calcul de convergence
+    ####################################################################################################
+    
+    # On calcule le résidu et sa norme
+    R = CREA_CHAMP(OPERATION='COMB',TYPE_CHAM='NOEU_DEPL_R',
+                   COMB=(_F(CHAM_GD=total,COEF_R=1.),_F(CHAM_GD=total0,COEF_R=-1.))
+                   )
+    r = R.EXTR_COMP().valeurs@DDLL.T
+    normr.append(np.linalg.norm(r))
+    err.append(np.linalg.norm(UG.EXTR_COMP().valeurs@DDLL.T-UGold)/np.linalg.norm(UG.EXTR_COMP().valeurs@DDLL.T))
+    UGold = UG.EXTR_COMP().valeurs@DDLL.T
+    
+    ####################################################################################################
+    # Destructions
+    ####################################################################################################
+    
+    DETRUIRE(CONCEPT=(_F(NOM=KAUG),_F(NOM=KAUGR),_F(NOM=KAUGCH),_F(NOM=KAUGRP),_F(NOM=totalG),
+    		      _F(NOM=R),_F(NOM=total0),_F(NOM=UGR),_F(NOM=UGL),_F(NOM=LAMBDACH)))	
+    #DETRUIRE(CONCEPT=(_F(NOM=R),_F(NOM=total0),_F(NOM=UGR),_F(NOM=UGL),_F(NOM=LAMBDACH)))
+    
+########################################################################################################
+# RESULTATS
+########################################################################################################  
+
+np.save(path+'/err.npy',err)
+np.save(path+'/normr.npy',normr)
+print("\nNORME RESIDU ABSOLU : ",normr,'\n')    
+print("NORME RESIDU RELATIF: ",normr/normr[0],'\n')  
+    
+
+# Création du concept de résultat
+ResG = CREA_RESU(OPERATION = 'AFFE',
+		 TYPE_RESU = 'EVOL_ELAS',
+		 NOM_CHAM = 'DEPL',
+		 AFFE = _F(CHAM_GD = UG,
+		           MODELE = modG,
+		           CHAM_MATER = MatG,
+		           INST = 0.
+		           )
+		)
+# Calcul des champs de réactions nodales
+ResG = CALC_CHAMP(reuse = ResG,
+	         RESULTAT = ResG,
+	         FORCE = 'REAC_NODA',
+	         GROUP_MA='Comp',
+	         )
+ResG =CALC_CHAMP(reuse=ResG,
+              RESULTAT=ResG,
+              GROUP_MA='Comp',
+              CONTRAINTE=('SIGM_ELGA','SIGM_ELNO',),)
+
+ResG=CALC_CHAMP(reuse =ResG,
+               RESULTAT=ResG,
+               GROUP_MA='Comp',
+               CRITERES='SIEQ_ELNO',);   
+ResG=CALC_CHAMP(reuse =ResG,
+               RESULTAT=ResG,
+               GROUP_MA='Comp',
+               CRITERES='SIEQ_NOEU',); 	         
+# Sauvegarde au format med
+IMPR_RESU(FORMAT = 'MED',UNITE=80,RESU=_F(RESULTAT=ResG))
+   
+# Création du concept de résultat
+ResL = CREA_RESU(OPERATION = 'AFFE',
+		 TYPE_RESU = 'EVOL_ELAS',
+		 NOM_CHAM = 'DEPL',
+		 AFFE = _F(CHAM_GD = UL,
+		           MODELE = modL,
+		           CHAM_MATER = matL,
+		           INST = 0.
+		           )
+		)
+# Calcul des champs de réactions nodales
+ResL = CALC_CHAMP(reuse = ResL,
+	         RESULTAT = ResL,
+	         FORCE = 'REAC_NODA',
+	         TOUT = 'OUI',
+	         )
+ResL =CALC_CHAMP(reuse=ResL,
+              RESULTAT=ResL,
+              TOUT='OUI',
+              CONTRAINTE=('SIGM_ELGA','SIGM_ELNO',),)
+ResL=CALC_CHAMP(reuse =ResL,
+               RESULTAT=ResL,
+               CRITERES='SIEQ_ELNO',);   
+ResL=CALC_CHAMP(reuse =ResL,
+               RESULTAT=ResL,
+               CRITERES='SIEQ_NOEU',);		         
+# Sauvegarde au format med
+IMPR_RESU(FORMAT = 'MED',UNITE=83,RESU=_F(RESULTAT=ResL))
+
+
+FIN();

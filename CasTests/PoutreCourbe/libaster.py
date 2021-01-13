@@ -355,4 +355,16 @@ def compute_nodal_reaction_from_field_on_group(field,model,mat,group,charg,char_
     
     DETRUIRE(CONCEPT=(_F(NOM=nodalrea),_F(NOM=resu)))
     return o[AsterIter]
+    
+def renum(Dl,dim=2):
+    if isinstance(Dl,sp.coo.coo_matrix):
+        Dl = Dl.toarray()
+    m,n = Dl.shape
+    m = m//dim
+    n = n//dim
+    r1 = np.arange(dim*m).reshape((2,m)).T.ravel()
+    r2 = np.arange(dim*n).reshape((2,n)).T.ravel()
+    index = np.ix_(r1,r2)
+    D = Dl[index]
+    return sp.coo_matrix(D)
 	
