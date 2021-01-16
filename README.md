@@ -26,8 +26,10 @@ Two main test cases are implemented. An elastic and simple girder with only thre
 
 Once Code_Aster installated, you have to:
 1. change path variable to your current working directory in ```global.comm```
-2. create ```.export``` file
-3. 
+2. create ```.export``` file taking as an example the file ```CasTests/PoutreCourbe/global-temp.export```
+3. in a terminal, run ```bash as_run your-export-file.export```
+
+In order to visualize your results, you can use Paravis in Salome-Meca with results files ```resultG.med``` and ```resultL.med``` for global and local solutions.
 
 In order to plot the convergence curves, do:
 ```bash
@@ -39,7 +41,7 @@ with ```arg1: girder [DEFAULT], toy``` and ```arg2: residue [DEFAULT], error```.
 
 ## Bug fix
 
-If there is any problem, do not hesitate to open an issue or contact us: @SimonTreil or @paul401.
+If there is any problem, do not hesitate to open an issue or contact us: [SimonTreil](https://github.com/SimonTreil) or [paul401](https://github.com/paul401).
 
 ## Contributing
 
